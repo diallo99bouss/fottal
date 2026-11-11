@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Caisse de l'Association</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Inter:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <!-- Écran de connexion -->
+  <section id="login" class="login" hidden>
+    <form id="fLogin" class="login-card">
+      <h1>Caisse de l'Association</h1>
+      <p class="rule">Connectez-vous avec votre compte administrateur ou agent.</p>
+      <label>Email<input id="l-email" type="email" autocomplete="username" required></label>
+      <label>Mot de passe<input id="l-mdp" type="password" autocomplete="current-password" required></label>
+      <p id="l-err" class="err" hidden></p>
+      <button class="btn primary" type="submit">Se connecter</button>
+    </form>
+  </section>
+
+  <!-- Application -->
+  <div id="app" class="wrap" hidden>
+    <header class="top">
+      <div>
+        <h1>Caisse de l'Association</h1>
+        <div class="rule">Cotisation 15 € / mois · réunion tous les 2 mois · <b>30 € par réunion</b></div>
+      </div>
+      <div class="who">
+        <span id="roleChip" class="chip"></span>
+        <button id="logout" class="btn small">Déconnexion</button>
+      </div>
+    </header>
+
+    <nav class="tabs" role="tablist">
+      <button role="tab" data-tab="bord" aria-selected="true">Tableau de bord</button>
+      <button role="tab" data-tab="membres" aria-selected="false">Membres</button>
+      <button role="tab" data-tab="reunions" aria-selected="false">Réunions</button>
+    </nav>
+
+    <main id="view"></main>
+  </div>
+
+  <div id="modalRoot"></div>
+  <div id="toast" class="toast" hidden></div>
+  <script src="/app.js"></script>
+</body>
+</html>

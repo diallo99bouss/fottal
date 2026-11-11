@@ -1,0 +1,15 @@
+﻿# Lance une base PostgreSQL locale : docker compose up -d
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: association
+      POSTGRES_PASSWORD: association
+      POSTGRES_DB: association
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+volumes:
+  pgdata:
