@@ -5,7 +5,7 @@ Application web pour gérer les membres, les réunions et les cotisations d'une 
 - **Cotisation** : 15 € par mois
 - **Réunion** : tous les 2 mois, donc **30 € par réunion**
 
-Technologies : **Node.js (Express)**, **PostgreSQL**, interface en **JavaScript** sans framework.
+Technologies : **Node.js (Express)**, **PostgreSQL**, interface **Next.js + React + Tailwind CSS** (dossier `web/`, basée sur le template [DropX Admin](https://datadropx.net) de DataDropX).
 
 ## Rôles
 
@@ -25,13 +25,14 @@ Technologies : **Node.js (Express)**, **PostgreSQL**, interface en **JavaScript*
 
 ## Installation
 
-Prérequis : [Node.js 18+](https://nodejs.org) et PostgreSQL (ou Docker).
+Prérequis : [Node.js 20+](https://nodejs.org) et PostgreSQL (ou Docker).
 
 ```bash
 # 1. Récupérer le projet
-git clone https://github.com/<votre-compte>/association-cotisations.git
-cd association-cotisations
+git clone https://github.com/<votre-compte>/fottal.git
+cd fottal
 npm install
+npm run web:install
 
 # 2. Lancer PostgreSQL (si vous utilisez Docker)
 docker compose up -d
@@ -47,11 +48,23 @@ npm run db:init
 npm run user:create -- admin@monasso.fr MotDePasseSolide admin "Prénom Nom"
 npm run user:create -- agent@monasso.fr AutreMotDePasse agent "Prénom Nom"
 
-# 6. Démarrer
+# 6. Construire l'interface puis démarrer
+npm run web:build
 npm start
 ```
 
 Ouvrez ensuite http://localhost:3000 et connectez-vous.
+
+### En développement
+
+Deux terminaux :
+
+```bash
+npm run dev       # API Express sur http://localhost:3000
+npm run web:dev   # Interface Next.js sur http://localhost:3001 (relaie /api vers :3000)
+```
+
+Ouvrez http://localhost:3001 : les modifications de l'interface s'affichent à chaud.
 
 ## Structure du projet
 
@@ -62,7 +75,8 @@ src/app.js               Configuration Express
 src/db.js                Connexion à PostgreSQL
 src/middleware/auth.js   Connexion (JWT en cookie) et contrôle des rôles
 src/routes/              API : auth, membres, réunions + cotisations, tableau de bord
-public/                  Interface web (HTML, CSS, JavaScript)
+web/                     Interface Next.js (pages dans web/app, composants dans web/components)
+web/out/                 Interface construite (npm run web:build), servie par Express
 scripts/                 Création des tables et des comptes
 test/api.test.js         Tests de l'API
 ```
