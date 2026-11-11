@@ -9,7 +9,10 @@
     "dev": "node --watch src/server.js",
     "db:init": "node scripts/init-db.js",
     "user:create": "node scripts/create-user.js",
-    "test": "node --test"
+    "test": "node --test",
+    "web:install": "npm --prefix web install",
+    "web:dev": "npm --prefix web run dev",
+    "web:build": "npm --prefix web run build"
   },
   "engines": {
     "node": ">=18"
