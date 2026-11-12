@@ -1,6 +1,7 @@
 "use client";
 
-import { ErrorBox, PayButton } from "@/components/caisse/shared";
+import { ErrorBox } from "@/components/caisse/shared";
+import { VersementButton } from "@/components/caisse/versement";
 import { MembreForm } from "@/components/caisse/membre-form";
 import { PageHeader } from "@/components/layout/page-header";
 import { useAuth } from "@/components/providers/auth-provider";
@@ -16,7 +17,7 @@ import { api, errMsg } from "@/lib/api";
 import { eur, fmtDate, nomComplet } from "@/lib/format";
 import { useApi } from "@/lib/use-api";
 import type { MembreDetail } from "@/types";
-import { CalendarX, Mail, MapPin, Pencil, Phone, Trash2, Wallet } from "lucide-react";
+import { CalendarX, HandCoins, Mail, MapPin, Pencil, Phone, Trash2, Wallet } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -108,13 +109,28 @@ export function FicheMembreView() {
                 </div>
               </div>
             </Card>
-            <StatCard label="Réunions dues" value={m.reunions_dues} icon={CalendarX} tone="warning" />
             <StatCard
-              label="Montant dû"
-              value={eur(m.montant_du)}
-              icon={Wallet}
-              tone={m.montant_du > 0 ? "destructive" : "success"}
+              label="Total versé"
+              value={eur(m.total_paye)}
+              icon={HandCoins}
+              tone="primary"
+              hint={`sur ${eur(m.total_attendu)} attendus depuis son adhésion`}
             />
+            {m.avance > 0 ? (
+              <StatCard label="Avance" value={eur(m.avance)} icon={Wallet} tone="info" hint="versé en plus de l'attendu" />
+            ) : (
+              <StatCard
+                label="Reste dû"
+                value={eur(m.montant_du)}
+                icon={m.montant_du > 0 ? CalendarX : Wallet}
+                tone={m.montant_du > 0 ? "destructive" : "success"}
+                hint={
+                  m.reunions_dues > 0
+                    ? `${m.reunions_dues} réunion${m.reunions_dues > 1 ? "s" : ""} pas entièrement payée${m.reunions_dues > 1 ? "s" : ""}`
+                    : "à jour"
+                }
+              />
+            )}
           </div>
 
           <Card className="overflow-hidden">
@@ -132,8 +148,9 @@ export function FicheMembreView() {
                       <tr>
                         <th className="px-5 py-3">Date</th>
                         <th className="px-5 py-3">Lieu</th>
-                        <th className="px-5 py-3">Payé le</th>
-                        <th className="px-5 py-3 text-right">Cotisation</th>
+                        <th className="px-5 py-3">Versé le</th>
+                        <th className="px-5 py-3 text-right">Attendu</th>
+                        <th className="px-5 py-3 text-right">Versement</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -144,12 +161,17 @@ export function FicheMembreView() {
                           <td className="whitespace-nowrap px-5 py-3 text-muted-foreground">
                             {r.paye_le ? fmtDate(r.paye_le) : "—"}
                           </td>
+                          <td className="whitespace-nowrap px-5 py-3 text-right tabular-nums text-muted-foreground">
+                            {eur(r.montant)}
+                          </td>
                           <td className="px-5 py-3 text-right">
-                            <PayButton
+                            <VersementButton
                               reunionId={r.id}
                               membreId={m.id}
-                              paye={!!r.cotisation_id}
-                              montant={r.montant}
+                              membreNom={nomComplet(m)}
+                              attendu={r.montant}
+                              paye={r.montant_paye}
+                              mode={r.mode}
                               onChange={reload}
                             />
                           </td>

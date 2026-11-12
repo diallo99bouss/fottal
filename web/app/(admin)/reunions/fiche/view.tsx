@@ -1,6 +1,8 @@
 "use client";
 
-import { ErrorBox, PayButton, Progress } from "@/components/caisse/shared";
+import { ErrorBox, Progress } from "@/components/caisse/shared";
+import { VersementButton } from "@/components/caisse/versement";
+import { BilanReunion } from "@/components/caisse/bilan-reunion";
 import { ReunionForm } from "@/components/caisse/reunion-form";
 import { PageHeader } from "@/components/layout/page-header";
 import { useAuth } from "@/components/providers/auth-provider";
@@ -98,7 +100,16 @@ export function FicheReunionView() {
               value={`${r.payes}/${r.attendus}`}
               icon={CheckCircle2}
               tone="primary"
-              hint={<Progress value={r.payes} max={r.attendus} />}
+              hint={
+                <>
+                  <Progress value={r.payes} max={r.attendus} />
+                  {r.partiels > 0 && (
+                    <p className="mt-1.5 text-warning">
+                      dont {r.partiels} versement{r.partiels > 1 ? "s" : ""} partiel{r.partiels > 1 ? "s" : ""}
+                    </p>
+                  )}
+                </>
+              }
             />
             <StatCard label="Encaissé" value={eur(r.encaisse)} icon={PiggyBank} tone="success" />
             <StatCard
@@ -108,6 +119,8 @@ export function FicheReunionView() {
               tone={r.reste > 0 ? "destructive" : "success"}
             />
           </div>
+
+          <BilanReunion r={r} onChange={reload} />
 
           {r.notes && (
             <Card>
@@ -156,10 +169,18 @@ export function FicheReunionView() {
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-medium">{nomComplet(m)}</p>
                           <p className="text-xs text-muted-foreground">
-                            {paye ? `Payé le ${fmtDate(m.paye_le)}` : m.telephone || "Non payé"}
+                            {paye ? `Versé ${eur(m.montant_paye)} le ${fmtDate(m.paye_le)}` : m.telephone || "Non payé"}
                           </p>
                         </div>
-                        <PayButton reunionId={r.id} membreId={m.id} paye={paye} onChange={reload} />
+                        <VersementButton
+                          reunionId={r.id}
+                          membreId={m.id}
+                          membreNom={nomComplet(m)}
+                          attendu={r.montant}
+                          paye={m.montant_paye}
+                          mode={m.mode}
+                          onChange={reload}
+                        />
                       </li>
                     );
                   })}

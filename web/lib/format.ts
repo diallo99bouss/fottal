@@ -21,3 +21,9 @@ export function jourMois(d: string) {
 }
 
 export const nomComplet = (m: { prenom: string; nom: string }) => `${m.prenom} ${m.nom}`;
+
+export const TYPES_AIDE = {
+  maladie: "Maladie",
+  deces: "Décès",
+  autre: "Autre",
+} as const;

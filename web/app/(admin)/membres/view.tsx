@@ -198,7 +198,7 @@ export function MembresView() {
                       {m.actif ? <Badge variant="info">Actif</Badge> : <Badge variant="secondary">Inactif</Badge>}
                     </td>
                     <td className="px-5 py-3 text-right">
-                      <DueBadge montant={m.montant_du} />
+                      <DueBadge montant={m.montant_du} avance={m.avance} />
                     </td>
                     {isAdmin && (
                       <td className="px-3 py-3">

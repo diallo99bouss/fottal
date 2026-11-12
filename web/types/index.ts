@@ -35,8 +35,11 @@ export interface Membre {
   bolondha: string | null; // nom de la bolondha
   date_adhesion: string;
   actif: boolean;
-  reunions_dues: number;
-  montant_du: number;
+  reunions_dues: number; // réunions passées pas entièrement payées
+  total_attendu: number; // cotisations attendues depuis l'adhésion
+  total_paye: number; // tout ce qu'il a versé
+  montant_du: number; // attendu − payé, si positif
+  avance: number; // payé − attendu, si positif
 }
 
 export interface Bolondha {
@@ -68,8 +71,30 @@ export interface Reunion {
   montant: number;
   attendus: number;
   payes: number;
+  partiels: number; // versements inférieurs à la cotisation
   encaisse: number;
-  reste: number;
+  reste: number; // cotisations encore dues
+  total_aides: number;
+  restant: number; // encaissé − aides : l'argent à confier
+  // Remise du restant à un membre
+  depositaire_id: number | null;
+  depositaire_nom: string | null;
+  montant_remis: number | null;
+  remis_le: string | null;
+  remise_a_jour: boolean; // false si le restant a changé depuis la remise
+}
+
+export type TypeAide = "maladie" | "deces" | "autre";
+
+export interface Aide {
+  id: number;
+  reunion_id: number;
+  type: TypeAide;
+  membre_id: number | null;
+  beneficiaire_nom: string;
+  motif: string | null;
+  montant: number;
+  cree_le: string;
 }
 
 export interface MembreReunion {
@@ -84,12 +109,14 @@ export interface MembreReunion {
 }
 
 export interface ReunionDetail extends Reunion {
+  aides: Aide[];
   membres: MembreReunion[];
 }
 
 export interface Tableau {
   membres: number;
   en_caisse: number;
+  aides_versees: number;
   restant_du: number;
   prochaine_reunion: Reunion | null;
   date_conseillee: string | null;

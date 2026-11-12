@@ -58,7 +58,13 @@ export function TableauView() {
         {t ? (
           <>
             <StatCard label="Membres actifs" value={t.membres} icon={Users} tone="primary" />
-            <StatCard label="En caisse" value={eur(t.en_caisse)} icon={PiggyBank} tone="success" />
+            <StatCard
+              label="En caisse"
+              value={eur(t.en_caisse)}
+              icon={PiggyBank}
+              tone="success"
+              hint={t.aides_versees > 0 ? `après ${eur(t.aides_versees)} d'aides versées` : undefined}
+            />
             <StatCard
               label="Restant dû"
               value={eur(t.restant_du)}
@@ -148,9 +154,8 @@ export function TableauView() {
                       <Avatar name={nomComplet(m)} size="sm" />
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium">{nomComplet(m)}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {m.reunions_dues} réunion{m.reunions_dues > 1 ? "s" : ""} impayée
-                          {m.reunions_dues > 1 ? "s" : ""}
+                        <p className="text-xs text-muted-foreground tabular-nums">
+                          Versé {eur(m.total_paye)} sur {eur(m.total_attendu)}
                         </p>
                       </div>
                       <DueBadge montant={m.montant_du} />
