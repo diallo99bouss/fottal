@@ -6,24 +6,36 @@ const { role } = require('../middleware/auth');
 
 const router = express.Router();
 
-// Montant dû = réunions passées depuis l'adhésion et non payées (membres actifs uniquement).
+// Solde d'un membre (cotisations à montant libre) :
+//   total_attendu = somme des cotisations des réunions passées depuis l'adhésion
+//   total_paye    = tout ce qu'il a versé (30 €, 50 €… selon les fois)
+//   montant_du    = attendu − payé si positif ; avance = payé − attendu si positif
+// Un membre inactif ne doit plus rien (comme avant).
 // Agrégat calculé en SQL : plus clair et plus rapide qu'en passant par l'ORM.
 function selectMembres(where = Prisma.empty) {
   return prisma.$queryRaw`
     SELECT m.*,
-      b.nom                         AS bolondha,
-      COALESCE(d.nb, 0)::int        AS reunions_dues,
-      COALESCE(d.total, 0)::float   AS montant_du
+      b.nom                                                    AS bolondha,
+      COALESCE(d.nb, 0)::int                                   AS reunions_dues,
+      COALESCE(d.attendu, 0)::float                            AS total_attendu,
+      COALESCE(p.paye, 0)::float                               AS total_paye,
+      CASE WHEN m.actif THEN GREATEST(COALESCE(d.attendu, 0) - COALESCE(p.paye, 0), 0) ELSE 0 END::float AS montant_du,
+      CASE WHEN m.actif THEN GREATEST(COALESCE(p.paye, 0) - COALESCE(d.attendu, 0), 0) ELSE 0 END::float AS avance
     FROM membres m
     LEFT JOIN bolondhas b ON b.id = m.bolondha_id
     LEFT JOIN LATERAL (
-      SELECT count(*) AS nb, sum(r.montant) AS total
+      -- Réunions passées depuis l'adhésion : montant attendu et nombre de réunions pas (entièrement) payées
+      SELECT sum(r.montant) AS attendu,
+             count(*) FILTER (WHERE COALESCE(c.montant, 0) < r.montant) AS nb
       FROM reunions r
+      LEFT JOIN cotisations c ON c.reunion_id = r.id AND c.membre_id = m.id
       WHERE r.date <= CURRENT_DATE
         AND r.date >= m.date_adhesion
         AND m.actif
-        AND NOT EXISTS (SELECT 1 FROM cotisations c WHERE c.reunion_id = r.id AND c.membre_id = m.id)
     ) d ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT sum(c.montant) AS paye FROM cotisations c WHERE c.membre_id = m.id
+    ) p ON TRUE
     ${where}
     ORDER BY m.nom, m.prenom`;
 }

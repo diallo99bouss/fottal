@@ -16,6 +16,7 @@ import { Pagination, usePagination } from "@/components/ui/pagination";
 import { SkeletonTable } from "@/components/ui/skeleton";
 import { aujourdhui, eur, fmtDate } from "@/lib/format";
 import { useApi } from "@/lib/use-api";
+import { cn } from "@/lib/utils";
 import type { Reunion } from "@/types";
 import { CalendarDays, CalendarPlus, Lightbulb } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -98,7 +99,9 @@ export function ReunionsView() {
                   <th className="px-5 py-3">Réunion</th>
                   <th className="px-5 py-3">Paiements</th>
                   <th className="px-5 py-3 text-right">Encaissé</th>
-                  <th className="px-5 py-3 text-right">Reste</th>
+                  <th className="px-5 py-3 text-right">Reste dû</th>
+                  <th className="px-5 py-3 text-right">Aides</th>
+                  <th className="px-5 py-3">Restant</th>
                   {isAdmin && (
                     <th className="px-5 py-3 text-right">
                       <span className="sr-only">Actions</span>
@@ -146,6 +149,24 @@ export function ReunionsView() {
                       ) : (
                         <span className="text-muted-foreground">—</span>
                       )}
+                    </td>
+                    <td className="whitespace-nowrap px-5 py-3 text-right tabular-nums">
+                      {r.total_aides > 0 ? (
+                        <span className="text-destructive">− {eur(r.total_aides)}</span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </td>
+                    <td className="px-5 py-3">
+                      <p className="font-medium tabular-nums">{eur(r.restant)}</p>
+                      {r.depositaire_nom ? (
+                        <p className={cn("text-xs", r.remise_a_jour ? "text-muted-foreground" : "text-warning")}>
+                          {r.remise_a_jour ? "→ " : "⚠ "}
+                          {r.depositaire_nom}
+                        </p>
+                      ) : r.restant > 0 ? (
+                        <p className="text-xs text-warning">non confié</p>
+                      ) : null}
                     </td>
                     {isAdmin && (
                       <td className="px-3 py-3">

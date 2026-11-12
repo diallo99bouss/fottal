@@ -22,25 +22,28 @@ model Utilisateur {
   role          String
   cree_le       DateTime     @default(now()) @db.Timestamptz(6)
   encaissements Cotisation[]
+  aides         Aide[]
 
   @@map("utilisateurs")
 }
 
 model Membre {
-  id            Int          @id @default(autoincrement())
-  prenom        String
-  nom           String
-  telephone     String?
-  email         String?
-  ville         String?
-  bolondha_id   Int?
-  date_adhesion DateTime     @default(dbgenerated("CURRENT_DATE")) @db.Date
-  actif         Boolean      @default(true)
-  cree_le       DateTime     @default(now()) @db.Timestamptz(6)
-  modifie_le    DateTime     @default(now()) @updatedAt @db.Timestamptz(6)
-  cotisations   Cotisation[]
+  id               Int          @id @default(autoincrement())
+  prenom           String
+  nom              String
+  telephone        String?
+  email            String?
+  ville            String?
+  bolondha_id      Int?
+  date_adhesion    DateTime     @default(dbgenerated("CURRENT_DATE")) @db.Date
+  actif            Boolean      @default(true)
+  cree_le          DateTime     @default(now()) @db.Timestamptz(6)
+  modifie_le       DateTime     @default(now()) @updatedAt @db.Timestamptz(6)
+  cotisations      Cotisation[]
+  aides_recues     Aide[]       @relation("AideBeneficiaire")
+  restants_confies Reunion[]    @relation("Depositaire")
   // Une bolondha utilisée par des membres ne peut pas être supprimée (Restrict)
-  bolondha      Bolondha?    @relation(fields: [bolondha_id], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  bolondha         Bolondha?    @relation(fields: [bolondha_id], references: [id], onDelete: Restrict, onUpdate: NoAction)
 
   @@index([bolondha_id], map: "idx_membres_bolondha")
   @@map("membres")
@@ -56,6 +59,15 @@ model Reunion {
   cree_le     DateTime     @default(now()) @db.Timestamptz(6)
   modifie_le  DateTime     @default(now()) @updatedAt @db.Timestamptz(6)
   cotisations Cotisation[]
+  aides       Aide[]
+
+  // Remise du restant (cotisations − aides) à un membre qui repart avec l'argent.
+  // Le nom et le montant sont figés au moment de la remise.
+  depositaire_id  Int?
+  depositaire_nom String?
+  montant_remis   Decimal?  @db.Decimal(10, 2)
+  remis_le        DateTime? @db.Timestamptz(6)
+  depositaire     Membre?   @relation("Depositaire", fields: [depositaire_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
 
   @@index([date], map: "idx_reunions_date")
   @@map("reunions")
@@ -88,4 +100,26 @@ model Bolondha {
   membres Membre[]
 
   @@map("bolondhas")
+}
+
+/// Aide versée lors d'une réunion (maladie, décès…), prise sur les cotisations du jour.
+/// Contraintes CHECK en base : type IN ('maladie', 'deces', 'autre'), montant > 0
+model Aide {
+  id               Int          @id @default(autoincrement())
+  reunion_id       Int
+  type             String
+  // Bénéficiaire : un membre (lien) ou une personne extérieure. Le nom est toujours conservé.
+  membre_id        Int?
+  beneficiaire_nom String
+  motif            String?
+  montant          Decimal      @db.Decimal(10, 2)
+  cree_le          DateTime     @default(now()) @db.Timestamptz(6)
+  enregistre_par   Int?
+  reunion          Reunion      @relation(fields: [reunion_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  membre           Membre?      @relation("AideBeneficiaire", fields: [membre_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  enregistreur     Utilisateur? @relation(fields: [enregistre_par], references: [id], onDelete: SetNull, onUpdate: NoAction)
+
+  @@index([reunion_id], map: "idx_aides_reunion")
+  @@index([membre_id], map: "idx_aides_membre")
+  @@map("aides")
 }
