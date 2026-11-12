@@ -1,15 +1,13 @@
-const { Pool, types } = require('pg');
+// Connexion à PostgreSQL via Prisma ORM (client généré dans src/generated/prisma par `npx prisma generate`)
+// Le client est généré en TypeScript (.mts) : Node 22.18+ le charge directement (suppression des types).
+const { PrismaClient, Prisma } = require('./generated/prisma/client.mts');
+const { PrismaPg } = require('@prisma/adapter-pg');
 
-// Renvoyer les NUMERIC en nombre JS et les DATE en chaîne 'YYYY-MM-DD'
-types.setTypeParser(1700, (v) => (v === null ? null : parseFloat(v)));
-types.setTypeParser(1082, (v) => v);
-
-const pool = new Pool({
+const adapter = new PrismaPg({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : false,
 });
 
-module.exports = {
-  pool,
-  query: (text, params) => pool.query(text, params),
-};
+const prisma = new PrismaClient({ adapter });
+
+module.exports = { prisma, Prisma };

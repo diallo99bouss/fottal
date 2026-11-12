@@ -1,26 +1,33 @@
 const express = require('express');
-const db = require('../db');
+const { prisma } = require('../db');
+const s = require('../serialize');
+const { prochaineDate } = require('./reunions');
 
 const router = express.Router();
 
 router.get('/', async (req, res, next) => {
   try {
-    const [membres, caisse, du, prochaine, derniere] = await Promise.all([
-      db.query('SELECT count(*)::int AS n FROM membres WHERE actif'),
-      db.query('SELECT COALESCE(sum(montant),0)::float AS total FROM cotisations'),
-      db.query(`SELECT COALESCE(sum(r.montant),0)::float AS total
-                  FROM membres m JOIN reunions r ON r.date >= m.date_adhesion AND r.date <= CURRENT_DATE
-                 WHERE m.actif
-                   AND NOT EXISTS (SELECT 1 FROM cotisations c WHERE c.reunion_id=r.id AND c.membre_id=m.id)`),
-      db.query('SELECT * FROM reunions WHERE date >= CURRENT_DATE ORDER BY date LIMIT 1'),
-      db.query(`SELECT to_char(max(date) + interval '2 months','YYYY-MM-DD') AS date FROM reunions`),
+    const [membres, caisse, du, prochaine, conseillee] = await Promise.all([
+      prisma.membre.count({ where: { actif: true } }),
+      prisma.cotisation.aggregate({ _sum: { montant: true } }),
+      // Total des réunions passées non payées par les membres actifs (agrégat SQL)
+      prisma.$queryRaw`
+        SELECT COALESCE(sum(r.montant),0)::float AS total
+          FROM membres m JOIN reunions r ON r.date >= m.date_adhesion AND r.date <= CURRENT_DATE
+         WHERE m.actif
+           AND NOT EXISTS (SELECT 1 FROM cotisations c WHERE c.reunion_id=r.id AND c.membre_id=m.id)`,
+      prisma.reunion.findFirst({
+        where: { date: { gte: s.versDate(s.aujourdhui()) } },
+        orderBy: { date: 'asc' },
+      }),
+      prochaineDate(),
     ]);
     res.json({
-      membres: membres.rows[0].n,
-      en_caisse: caisse.rows[0].total,
-      restant_du: du.rows[0].total,
-      prochaine_reunion: prochaine.rows[0] || null,
-      date_conseillee: derniere.rows[0].date,
+      membres,
+      en_caisse: s.nombre(caisse._sum.montant) || 0,
+      restant_du: du[0].total,
+      prochaine_reunion: s.reunion(prochaine),
+      date_conseillee: conseillee,
     });
   } catch (e) { next(e); }
 });
