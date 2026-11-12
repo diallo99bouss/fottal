@@ -30,10 +30,19 @@ export interface Membre {
   nom: string;
   telephone: string | null;
   email: string | null;
+  ville: string | null;
+  bolondha_id: number | null;
+  bolondha: string | null; // nom de la bolondha
   date_adhesion: string;
   actif: boolean;
   reunions_dues: number;
   montant_du: number;
+}
+
+export interface Bolondha {
+  id: number;
+  nom: string;
+  nb_membres: number;
 }
 
 export interface LigneHistorique {

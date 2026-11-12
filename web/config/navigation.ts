@@ -1,5 +1,5 @@
 import type { NavGroup } from "@/types";
-import { CalendarDays, LayoutDashboard, Users } from "lucide-react";
+import { CalendarDays, LayoutDashboard, MapPinned, Users } from "lucide-react";
 
 export const navigation: NavGroup[] = [
   {
@@ -10,11 +10,16 @@ export const navigation: NavGroup[] = [
       { title: "Réunions", href: "/reunions", icon: CalendarDays },
     ],
   },
+  {
+    label: "Paramètres",
+    items: [{ title: "Bolondhas", href: "/bolondhas", icon: MapPinned }],
+  },
 ];
 
 // Libellés du fil d'Ariane pour chaque segment d'URL
 export const libellesRoutes: Record<string, string> = {
   membres: "Membres",
   reunions: "Réunions",
+  bolondhas: "Bolondhas",
   fiche: "Fiche",
 };

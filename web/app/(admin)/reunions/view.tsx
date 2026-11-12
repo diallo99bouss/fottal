@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
+import { Pagination, usePagination } from "@/components/ui/pagination";
 import { SkeletonTable } from "@/components/ui/skeleton";
 import { aujourdhui, eur, fmtDate } from "@/lib/format";
 import { useApi } from "@/lib/use-api";
@@ -24,6 +25,7 @@ export function ReunionsView() {
   const { isAdmin } = useAuth();
   const router = useRouter();
   const reunions = useApi<Reunion[]>("/reunions");
+  const pg = usePagination(reunions.data);
   const conseil = useApi<{ date: string | null }>("/reunions/prochaine-date");
   const [formOpen, setFormOpen] = useState(false);
   const [aModifier, setAModifier] = useState<Reunion | null>(null);
@@ -105,7 +107,7 @@ export function ReunionsView() {
                 </tr>
               </thead>
               <tbody>
-                {reunions.data.map((r) => (
+                {pg.pageItems.map((r) => (
                   <tr
                     key={r.id}
                     tabIndex={0}
@@ -159,6 +161,7 @@ export function ReunionsView() {
               </tbody>
             </table>
           </div>
+          <Pagination {...pg} />
         </Card>
       )}
 
