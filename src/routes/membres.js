@@ -1,24 +1,30 @@
 const express = require('express');
-const db = require('../db');
+const { prisma, Prisma } = require('../db');
 const v = require('../validation');
+const s = require('../serialize');
 const { role } = require('../middleware/auth');
 
 const router = express.Router();
 
-// Réunions passées depuis l'adhésion et non payées => montant dû
-const SELECT_MEMBRES = `
-  SELECT m.*,
-    COALESCE(d.nb, 0)::int        AS reunions_dues,
-    COALESCE(d.total, 0)::float   AS montant_du
-  FROM membres m
-  LEFT JOIN LATERAL (
-    SELECT count(*) AS nb, sum(r.montant) AS total
-    FROM reunions r
-    WHERE r.date <= CURRENT_DATE
-      AND r.date >= m.date_adhesion
-      AND m.actif
-      AND NOT EXISTS (SELECT 1 FROM cotisations c WHERE c.reunion_id = r.id AND c.membre_id = m.id)
-  ) d ON TRUE`;
+// Montant dû = réunions passées depuis l'adhésion et non payées (membres actifs uniquement).
+// Agrégat calculé en SQL : plus clair et plus rapide qu'en passant par l'ORM.
+function selectMembres(where = Prisma.empty) {
+  return prisma.$queryRaw`
+    SELECT m.*,
+      COALESCE(d.nb, 0)::int        AS reunions_dues,
+      COALESCE(d.total, 0)::float   AS montant_du
+    FROM membres m
+    LEFT JOIN LATERAL (
+      SELECT count(*) AS nb, sum(r.montant) AS total
+      FROM reunions r
+      WHERE r.date <= CURRENT_DATE
+        AND r.date >= m.date_adhesion
+        AND m.actif
+        AND NOT EXISTS (SELECT 1 FROM cotisations c WHERE c.reunion_id = r.id AND c.membre_id = m.id)
+    ) d ON TRUE
+    ${where}
+    ORDER BY m.nom, m.prenom`;
+}
 
 function lire(body) {
   return {
@@ -26,80 +32,81 @@ function lire(body) {
     nom: v.texte(body.nom, 'nom', { requis: true }),
     telephone: v.texte(body.telephone, 'téléphone'),
     email: v.texte(body.email, 'email'),
-    date_adhesion: v.date(body.date_adhesion, "date d'adhésion") || new Date().toISOString().slice(0, 10),
+    date_adhesion: s.versDate(v.date(body.date_adhesion, "date d'adhésion") || s.aujourdhui()),
     actif: body.actif === undefined ? true : Boolean(body.actif),
   };
 }
+
+const introuvable = (res) => res.status(404).json({ erreur: 'Membre introuvable' });
+const estIntrouvable = (e) => e && e.code === 'P2025';
 
 // Liste (admin et agent)
 router.get('/', async (req, res, next) => {
   try {
     const q = (req.query.q || '').trim();
-    const params = [];
-    let where = '';
-    if (q) {
-      params.push(`%${q}%`);
-      where = `WHERE m.prenom ILIKE $1 OR m.nom ILIKE $1 OR m.telephone ILIKE $1`;
-    }
-    const { rows } = await db.query(`${SELECT_MEMBRES} ${where} ORDER BY m.nom, m.prenom`, params);
-    res.json(rows);
+    const like = `%${q}%`;
+    const where = q
+      ? Prisma.sql`WHERE m.prenom ILIKE ${like} OR m.nom ILIKE ${like} OR m.telephone ILIKE ${like}`
+      : Prisma.empty;
+    const rows = await selectMembres(where);
+    res.json(rows.map(s.membre));
   } catch (e) { next(e); }
 });
 
-// Détail + historique des réunions
+// Détail + historique des réunions depuis l'adhésion
 router.get('/:id', async (req, res, next) => {
   try {
     const id = v.id(req.params.id);
-    const { rows } = await db.query(`${SELECT_MEMBRES} WHERE m.id = $1`, [id]);
-    if (!rows[0]) return res.status(404).json({ erreur: 'Membre introuvable' });
-    const hist = await db.query(
-      `SELECT r.id, r.date, r.lieu, r.montant, c.id AS cotisation_id, c.montant AS montant_paye, c.paye_le, c.mode
-         FROM reunions r
-         LEFT JOIN cotisations c ON c.reunion_id = r.id AND c.membre_id = $1
-        WHERE r.date >= $2
-        ORDER BY r.date DESC`,
-      [id, rows[0].date_adhesion]
-    );
-    res.json({ ...rows[0], historique: hist.rows });
+    const [m] = await selectMembres(Prisma.sql`WHERE m.id = ${id}`);
+    if (!m) return introuvable(res);
+    const reunions = await prisma.reunion.findMany({
+      where: { date: { gte: s.versDate(s.jour(m.date_adhesion)) } },
+      orderBy: { date: 'desc' },
+      include: { cotisations: { where: { membre_id: id } } },
+    });
+    const historique = reunions.map(({ cotisations: [c], ...r }) => ({
+      id: r.id,
+      date: s.jour(r.date),
+      lieu: r.lieu,
+      montant: s.nombre(r.montant),
+      cotisation_id: c ? c.id : null,
+      montant_paye: c ? s.nombre(c.montant) : null,
+      paye_le: c ? c.paye_le : null,
+      mode: c ? c.mode : null,
+    }));
+    res.json({ ...s.membre(m), historique });
   } catch (e) { next(e); }
 });
 
 // Ajouter (admin)
 router.post('/', role('admin'), async (req, res, next) => {
   try {
-    const m = lire(req.body || {});
-    const { rows } = await db.query(
-      `INSERT INTO membres (prenom, nom, telephone, email, date_adhesion, actif)
-       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-      [m.prenom, m.nom, m.telephone, m.email, m.date_adhesion, m.actif]
-    );
-    res.status(201).json(rows[0]);
+    const m = await prisma.membre.create({ data: lire(req.body || {}) });
+    res.status(201).json(s.membre(m));
   } catch (e) { next(e); }
 });
 
-// Modifier (admin)
+// Modifier (admin) — modifie_le est mis à jour par Prisma (@updatedAt)
 router.put('/:id', role('admin'), async (req, res, next) => {
   try {
     const id = v.id(req.params.id);
-    const m = lire(req.body || {});
-    const { rows } = await db.query(
-      `UPDATE membres SET prenom=$1, nom=$2, telephone=$3, email=$4, date_adhesion=$5, actif=$6, modifie_le=now()
-       WHERE id=$7 RETURNING *`,
-      [m.prenom, m.nom, m.telephone, m.email, m.date_adhesion, m.actif, id]
-    );
-    if (!rows[0]) return res.status(404).json({ erreur: 'Membre introuvable' });
-    res.json(rows[0]);
-  } catch (e) { next(e); }
+    const m = await prisma.membre.update({ where: { id }, data: lire(req.body || {}) });
+    res.json(s.membre(m));
+  } catch (e) {
+    if (estIntrouvable(e)) return introuvable(res);
+    next(e);
+  }
 });
 
 // Supprimer (admin) — ses cotisations sont supprimées aussi (ON DELETE CASCADE)
 router.delete('/:id', role('admin'), async (req, res, next) => {
   try {
-    const id = v.id(req.params.id);
-    const { rowCount } = await db.query('DELETE FROM membres WHERE id=$1', [id]);
-    if (!rowCount) return res.status(404).json({ erreur: 'Membre introuvable' });
+    await prisma.membre.delete({ where: { id: v.id(req.params.id) } });
     res.json({ ok: true });
-  } catch (e) { next(e); }
+  } catch (e) {
+    if (estIntrouvable(e)) return introuvable(res);
+    next(e);
+  }
 });
 
 module.exports = router;

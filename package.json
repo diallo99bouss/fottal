@@ -1,13 +1,16 @@
 {
   "name": "association-cotisations",
   "version": "1.0.0",
-  "description": "Gestion des membres, réunions et cotisations d'une association (Node.js + PostgreSQL)",
+  "description": "Gestion des membres, réunions et cotisations d'une association (Express + Prisma + PostgreSQL)",
   "main": "src/server.js",
   "type": "commonjs",
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "db:init": "node scripts/init-db.js",
+    "postinstall": "prisma generate",
+    "db:init": "prisma migrate deploy",
+    "db:migrate": "prisma migrate dev",
+    "db:studio": "prisma studio",
     "user:create": "node scripts/create-user.js",
     "test": "node --test",
     "web:install": "npm --prefix web install",
@@ -15,15 +18,17 @@
     "web:build": "npm --prefix web run build"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=22.18"
   },
   "license": "MIT",
   "dependencies": {
+    "@prisma/adapter-pg": "7.10.1",
+    "@prisma/client": "7.10.1",
     "bcryptjs": "^2.4.3",
     "cookie-parser": "^1.4.7",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "jsonwebtoken": "^9.0.2",
-    "pg": "^8.13.1"
+    "prisma": "7.10.1"
   }
 }

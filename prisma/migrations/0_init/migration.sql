@@ -1,7 +1,6 @@
--- Schéma de la base de l'association
--- Cotisation : 15 € par mois, réunion tous les 2 mois => 30 € par réunion
+-- Migration initiale (reprise de l'ancien db/schema.sql, avec les contraintes CHECK)
 
-CREATE TABLE IF NOT EXISTS utilisateurs (
+CREATE TABLE utilisateurs (
   id            SERIAL PRIMARY KEY,
   email         TEXT NOT NULL UNIQUE,
   nom           TEXT NOT NULL,
@@ -10,7 +9,7 @@ CREATE TABLE IF NOT EXISTS utilisateurs (
   cree_le       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS membres (
+CREATE TABLE membres (
   id              SERIAL PRIMARY KEY,
   prenom          TEXT NOT NULL,
   nom             TEXT NOT NULL,
@@ -22,7 +21,7 @@ CREATE TABLE IF NOT EXISTS membres (
   modifie_le      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS reunions (
+CREATE TABLE reunions (
   id          SERIAL PRIMARY KEY,
   date        DATE NOT NULL,
   lieu        TEXT,
@@ -33,7 +32,7 @@ CREATE TABLE IF NOT EXISTS reunions (
 );
 
 -- Une cotisation = un membre a payé pour une réunion
-CREATE TABLE IF NOT EXISTS cotisations (
+CREATE TABLE cotisations (
   id            SERIAL PRIMARY KEY,
   reunion_id    INTEGER NOT NULL REFERENCES reunions(id) ON DELETE CASCADE,
   membre_id     INTEGER NOT NULL REFERENCES membres(id)  ON DELETE CASCADE,
@@ -44,5 +43,5 @@ CREATE TABLE IF NOT EXISTS cotisations (
   UNIQUE (reunion_id, membre_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_cotisations_membre ON cotisations(membre_id);
-CREATE INDEX IF NOT EXISTS idx_reunions_date ON reunions(date);
+CREATE INDEX idx_cotisations_membre ON cotisations(membre_id);
+CREATE INDEX idx_reunions_date ON reunions(date);

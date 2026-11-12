@@ -7,20 +7,30 @@ const fs = require('fs');
 const path = require('path');
 const bcrypt = require('bcryptjs');
 const app = require('../src/app');
-const { pool } = require('../src/db');
+const { prisma } = require('../src/db');
 
 let server, base;
 
 before(async () => {
-  await pool.query('DROP TABLE IF EXISTS cotisations, reunions, membres, utilisateurs CASCADE');
-  await pool.query(fs.readFileSync(path.join(__dirname, '..', 'db', 'schema.sql'), 'utf8'));
+  // Repart d'une base vide puis applique les migrations Prisma
+  await prisma.$executeRawUnsafe('DROP TABLE IF EXISTS cotisations, reunions, membres, utilisateurs, _prisma_migrations CASCADE');
+  const dossier = path.join(__dirname, '..', 'prisma', 'migrations');
+  for (const m of fs.readdirSync(dossier).filter((d) => fs.statSync(path.join(dossier, d)).isDirectory()).sort()) {
+    const sql = fs.readFileSync(path.join(dossier, m, 'migration.sql'), 'utf8');
+    // Une instruction par appel (requêtes préparées) ; on retire les lignes de commentaire
+    for (const instr of sql.split(/;\s*$/m).map((x) => x.replace(/^\s*--.*$/gm, '').trim()).filter(Boolean)) {
+      await prisma.$executeRawUnsafe(instr);
+    }
+  }
   const h = await bcrypt.hash('secret123', 4);
-  await pool.query(`INSERT INTO utilisateurs (email, nom, mot_de_passe, role) VALUES
-    ('admin@test.fr','Admin',$1,'admin'), ('agent@test.fr','Agent',$1,'agent')`, [h]);
+  await prisma.utilisateur.createMany({ data: [
+    { email: 'admin@test.fr', nom: 'Admin', mot_de_passe: h, role: 'admin' },
+    { email: 'agent@test.fr', nom: 'Agent', mot_de_passe: h, role: 'agent' },
+  ] });
   server = app.listen(0);
   base = `http://localhost:${server.address().port}/api`;
 });
-after(async () => { server.close(); await pool.end(); });
+after(async () => { server.close(); await prisma.$disconnect(); });
 
 async function login(email) {
   const r = await fetch(base + '/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, motDePasse: 'secret123' }) });
@@ -41,6 +51,7 @@ test('parcours complet admin + agent', async () => {
 
   const m1 = await admin('POST', '/membres', { prenom: 'Aminata', nom: 'Diallo', date_adhesion: '2026-01-01' });
   assert.strictEqual(m1.status, 201);
+  assert.strictEqual(m1.body.date_adhesion, '2026-01-01');
   const m2 = await admin('POST', '/membres', { prenom: 'Moussa', nom: 'Bah', date_adhesion: '2026-01-01' });
 
   // L'agent ne peut pas gérer les membres ni les réunions
@@ -50,6 +61,7 @@ test('parcours complet admin + agent', async () => {
   const r1 = await admin('POST', '/reunions', { date: '2026-03-14', lieu: 'Salle' });
   assert.strictEqual(r1.status, 201);
   assert.strictEqual(r1.body.montant, 30);
+  assert.strictEqual(r1.body.date, '2026-03-14');
   assert.strictEqual((await agent('POST', '/reunions', { date: '2026-05-14' })).status, 403);
 
   const next = await admin('GET', '/reunions/prochaine-date');
@@ -69,6 +81,13 @@ test('parcours complet admin + agent', async () => {
   const membres = await admin('GET', '/membres');
   const moussa = membres.body.find((m) => m.id === m2.body.id);
   assert.strictEqual(moussa.montant_du, 30);
+  assert.strictEqual(moussa.reunions_dues, 1);
+
+  const fiche = await agent('GET', '/membres/' + m1.body.id);
+  assert.strictEqual(fiche.body.historique.length, 1);
+  assert.strictEqual(fiche.body.historique[0].date, '2026-03-14');
+  assert.strictEqual(fiche.body.historique[0].montant_paye, 30);
+  assert.strictEqual(detail.body.membres.length, 2);
 
   const tb = await admin('GET', '/tableau');
   assert.strictEqual(tb.body.en_caisse, 30);

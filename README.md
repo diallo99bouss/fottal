@@ -5,7 +5,7 @@ Application web pour gérer les membres, les réunions et les cotisations d'une 
 - **Cotisation** : 15 € par mois
 - **Réunion** : tous les 2 mois, donc **30 € par réunion**
 
-Technologies : **Node.js (Express)**, **PostgreSQL**, interface **Next.js + React + Tailwind CSS** (dossier `web/`, basée sur le template [DropX Admin](https://datadropx.net) de DataDropX).
+Technologies : **Node.js (Express)**, **PostgreSQL** via l'ORM **Prisma 7**, interface **Next.js + React + Tailwind CSS** (dossier `web/`, basée sur le template [DropX Admin](https://datadropx.net) de DataDropX).
 
 ## Rôles
 
@@ -25,7 +25,7 @@ Technologies : **Node.js (Express)**, **PostgreSQL**, interface **Next.js + Reac
 
 ## Installation
 
-Prérequis : [Node.js 20+](https://nodejs.org) et PostgreSQL (ou Docker).
+Prérequis : [Node.js 22.18+](https://nodejs.org) (24 recommandé) et PostgreSQL (ou Docker).
 
 ```bash
 # 1. Récupérer le projet
@@ -41,7 +41,7 @@ docker compose up -d
 cp .env.example .env
 # puis modifiez JWT_SECRET (et DATABASE_URL si besoin)
 
-# 4. Créer les tables
+# 4. Créer les tables (applique les migrations Prisma)
 npm run db:init
 
 # 5. Créer les comptes de connexion
@@ -69,10 +69,14 @@ Ouvrez http://localhost:3001 : les modifications de l'interface s'affichent à c
 ## Structure du projet
 
 ```
-db/schema.sql            Tables PostgreSQL
+prisma/schema.prisma     Modèles Prisma (Utilisateur, Membre, Reunion, Cotisation)
+prisma/migrations/       Migrations SQL (Prisma Migrate)
+prisma.config.ts         Configuration Prisma (lit DATABASE_URL dans .env)
 src/server.js            Point d'entrée
 src/app.js               Configuration Express
-src/db.js                Connexion à PostgreSQL
+src/db.js                Client Prisma (adaptateur PostgreSQL)
+src/serialize.js         Format JSON : dates en AAAA-MM-JJ, montants en nombres
+src/generated/prisma/    Client Prisma généré (npm install / npx prisma generate, non versionné)
 src/middleware/auth.js   Connexion (JWT en cookie) et contrôle des rôles
 src/routes/              API : auth, membres, réunions + cotisations, tableau de bord
 web/                     Interface Next.js (pages dans web/app, composants dans web/components)
@@ -101,9 +105,26 @@ Toutes les routes (sauf `/api/auth/login`) demandent d'être connecté.
 | POST | `/api/reunions/:id/cotisations` `{ membre_id }` | admin, agent |
 | DELETE | `/api/reunions/:id/cotisations/:membreId` | admin, agent |
 
+## Base de données (Prisma)
+
+| Commande | Effet |
+|---|---|
+| `npm run db:init` | applique les migrations sur la base (`prisma migrate deploy`) |
+| `npm run db:migrate -- --name ma-modif` | après une modification de `prisma/schema.prisma` : crée et applique une migration |
+| `npx prisma generate` | régénère le client (fait automatiquement par `npm install`) |
+| `npm run db:studio` | ouvre Prisma Studio pour voir et modifier les données |
+
+Les calculs d'agrégats (montant dû, membres attendus) restent en SQL via `prisma.$queryRaw`, les opérations simples passent par le client Prisma.
+
 ## Tests
 
-Les tests effacent la base indiquée : utilisez une base dédiée.
+Les tests effacent la base indiquée : utilisez une base dédiée. Pour la créer une fois avec Docker :
+
+```bash
+docker compose exec db psql -U association -d association -c "CREATE DATABASE association_test"
+```
+
+Puis :
 
 ```bash
 DATABASE_URL=postgresql://association:association@localhost:5433/association_test npm test
