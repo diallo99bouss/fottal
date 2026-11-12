@@ -32,12 +32,17 @@ model Membre {
   nom           String
   telephone     String?
   email         String?
+  ville         String?
+  bolondha_id   Int?
   date_adhesion DateTime     @default(dbgenerated("CURRENT_DATE")) @db.Date
   actif         Boolean      @default(true)
   cree_le       DateTime     @default(now()) @db.Timestamptz(6)
   modifie_le    DateTime     @default(now()) @updatedAt @db.Timestamptz(6)
   cotisations   Cotisation[]
+  // Une bolondha utilisée par des membres ne peut pas être supprimée (Restrict)
+  bolondha      Bolondha?    @relation(fields: [bolondha_id], references: [id], onDelete: Restrict, onUpdate: NoAction)
 
+  @@index([bolondha_id], map: "idx_membres_bolondha")
   @@map("membres")
 }
 
@@ -73,4 +78,14 @@ model Cotisation {
   @@unique([reunion_id, membre_id])
   @@index([membre_id], map: "idx_cotisations_membre")
   @@map("cotisations")
+}
+
+/// Bolondha (groupe d'appartenance d'un membre), gérée par l'admin
+model Bolondha {
+  id      Int      @id @default(autoincrement())
+  nom     String   @unique
+  cree_le DateTime @default(now()) @db.Timestamptz(6)
+  membres Membre[]
+
+  @@map("bolondhas")
 }

@@ -9,13 +9,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConfirmModal } from "@/components/ui/modal";
+import { Pagination, usePagination } from "@/components/ui/pagination";
 import { Skeleton, SkeletonTable } from "@/components/ui/skeleton";
 import { StatCard } from "@/components/ui/stat-card";
 import { api, errMsg } from "@/lib/api";
 import { eur, fmtDate, nomComplet } from "@/lib/format";
 import { useApi } from "@/lib/use-api";
 import type { MembreDetail } from "@/types";
-import { CalendarX, Mail, Pencil, Phone, Trash2, Wallet } from "lucide-react";
+import { CalendarX, Mail, MapPin, Pencil, Phone, Trash2, Wallet } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -25,6 +26,7 @@ export function FicheMembreView() {
   const router = useRouter();
   const id = useSearchParams().get("id");
   const { data: m, error, reload } = useApi<MembreDetail>(id ? `/membres/${id}` : null);
+  const pg = usePagination(m?.historique);
   const [editOpen, setEditOpen] = useState(false);
   const [delOpen, setDelOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -96,7 +98,14 @@ export function FicheMembreView() {
                   <Mail className="h-3.5 w-3.5 shrink-0" />
                   <span className="truncate">{m.email || "Pas d'email"}</span>
                 </p>
-                {m.actif ? <Badge variant="info">Actif</Badge> : <Badge variant="secondary">Inactif</Badge>}
+                <p className="flex items-center gap-2 text-muted-foreground">
+                  <MapPin className="h-3.5 w-3.5 shrink-0" />
+                  <span className="truncate">{m.ville || "Ville non renseignée"}</span>
+                </p>
+                <div className="flex flex-wrap gap-1.5 pt-0.5">
+                  {m.actif ? <Badge variant="info">Actif</Badge> : <Badge variant="secondary">Inactif</Badge>}
+                  {m.bolondha && <Badge variant="default">{m.bolondha}</Badge>}
+                </div>
               </div>
             </Card>
             <StatCard label="Réunions dues" value={m.reunions_dues} icon={CalendarX} tone="warning" />
@@ -128,7 +137,7 @@ export function FicheMembreView() {
                       </tr>
                     </thead>
                     <tbody>
-                      {m.historique.map((r) => (
+                      {pg.pageItems.map((r) => (
                         <tr key={r.id} className="border-b border-border hover:bg-muted/50">
                           <td className="whitespace-nowrap px-5 py-3 font-medium">{fmtDate(r.date)}</td>
                           <td className="px-5 py-3 text-muted-foreground">{r.lieu || "Réunion"}</td>
@@ -150,6 +159,7 @@ export function FicheMembreView() {
                   </table>
                 </div>
               )}
+              <Pagination {...pg} />
             </CardContent>
           </Card>
 

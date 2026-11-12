@@ -32,4 +32,10 @@ function id(v) {
   return n;
 }
 
-module.exports = { ErreurValidation, texte, date, montant, id };
+// Identifiant facultatif : vide -> null
+function idOptionnel(v) {
+  if (v === undefined || v === null || v === '') return null;
+  return id(v);
+}
+
+module.exports = { ErreurValidation, texte, date, montant, id, idOptionnel };

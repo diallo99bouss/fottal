@@ -13,7 +13,7 @@ let server, base;
 
 before(async () => {
   // Repart d'une base vide puis applique les migrations Prisma
-  await prisma.$executeRawUnsafe('DROP TABLE IF EXISTS cotisations, reunions, membres, utilisateurs, _prisma_migrations CASCADE');
+  await prisma.$executeRawUnsafe('DROP TABLE IF EXISTS cotisations, reunions, membres, bolondhas, utilisateurs, _prisma_migrations CASCADE');
   const dossier = path.join(__dirname, '..', 'prisma', 'migrations');
   for (const m of fs.readdirSync(dossier).filter((d) => fs.statSync(path.join(dossier, d)).isDirectory()).sort()) {
     const sql = fs.readFileSync(path.join(dossier, m, 'migration.sql'), 'utf8');
@@ -102,4 +102,43 @@ test('parcours complet admin + agent', async () => {
   // Validation
   assert.strictEqual((await admin('POST', '/reunions', { date: 'pas-une-date' })).status, 400);
   assert.strictEqual((await admin('POST', '/membres', { prenom: '' })).status, 400);
+});
+
+test('bolondhas : gestion par l\'admin et rattachement des membres', async () => {
+  const admin = await login('admin@test.fr');
+  const agent = await login('agent@test.fr');
+
+  const b1 = await admin('POST', '/bolondhas', { nom: 'Kourasadio' });
+  assert.strictEqual(b1.status, 201);
+  assert.strictEqual(b1.body.nb_membres, 0);
+  const b2 = await admin('POST', '/bolondhas', { nom: 'Kowly' });
+  assert.strictEqual((await admin('POST', '/bolondhas', { nom: 'kowly' })).status, 409); // doublon
+  assert.strictEqual((await admin('POST', '/bolondhas', { nom: ' ' })).status, 400);
+
+  // L'agent lit la liste mais ne la modifie pas
+  assert.strictEqual((await agent('GET', '/bolondhas')).status, 200);
+  assert.strictEqual((await agent('POST', '/bolondhas', { nom: 'X' })).status, 403);
+  assert.strictEqual((await agent('DELETE', '/bolondhas/' + b1.body.id)).status, 403);
+
+  // Membre avec ville et bolondha
+  const m = await admin('POST', '/membres', { prenom: 'Fatou', nom: 'Sow', ville: 'Paris', bolondha_id: b1.body.id, date_adhesion: '2026-01-01' });
+  assert.strictEqual(m.status, 201);
+  assert.strictEqual(m.body.ville, 'Paris');
+  assert.strictEqual((await admin('POST', '/membres', { prenom: 'A', nom: 'B', bolondha_id: 99999 })).status, 400);
+
+  const fiche = await admin('GET', '/membres/' + m.body.id);
+  assert.strictEqual(fiche.body.bolondha, 'Kourasadio');
+  assert.strictEqual((await admin('GET', '/membres?bolondha=' + b1.body.id)).body.length, 1);
+  assert.strictEqual((await admin('GET', '/membres?bolondha=' + b2.body.id)).body.length, 0);
+  assert.strictEqual((await admin('GET', '/membres?q=kourasa')).body.length, 1);
+
+  // Renommer, puis suppression refusée tant qu'un membre y est rattaché
+  assert.strictEqual((await admin('PUT', '/bolondhas/' + b1.body.id, { nom: 'Kourasadio Centre' })).body.nom, 'Kourasadio Centre');
+  assert.strictEqual((await admin('PUT', '/bolondhas/' + b1.body.id, { nom: 'Kowly' })).status, 409);
+  assert.strictEqual((await admin('GET', '/bolondhas')).body.find((b) => b.id === b1.body.id).nb_membres, 1);
+  assert.strictEqual((await admin('DELETE', '/bolondhas/' + b1.body.id)).status, 409);
+
+  await admin('PUT', '/membres/' + m.body.id, { prenom: 'Fatou', nom: 'Sow', bolondha_id: b2.body.id, date_adhesion: '2026-01-01' });
+  assert.strictEqual((await admin('DELETE', '/bolondhas/' + b1.body.id)).status, 200);
+  assert.strictEqual((await admin('DELETE', '/bolondhas/' + b1.body.id)).status, 404);
 });

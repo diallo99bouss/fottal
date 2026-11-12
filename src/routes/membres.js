@@ -11,9 +11,11 @@ const router = express.Router();
 function selectMembres(where = Prisma.empty) {
   return prisma.$queryRaw`
     SELECT m.*,
+      b.nom                         AS bolondha,
       COALESCE(d.nb, 0)::int        AS reunions_dues,
       COALESCE(d.total, 0)::float   AS montant_du
     FROM membres m
+    LEFT JOIN bolondhas b ON b.id = m.bolondha_id
     LEFT JOIN LATERAL (
       SELECT count(*) AS nb, sum(r.montant) AS total
       FROM reunions r
@@ -26,12 +28,18 @@ function selectMembres(where = Prisma.empty) {
     ORDER BY m.nom, m.prenom`;
 }
 
-function lire(body) {
+async function lire(body) {
+  const bolondha_id = v.idOptionnel(body.bolondha_id);
+  if (bolondha_id && !(await prisma.bolondha.findUnique({ where: { id: bolondha_id } }))) {
+    throw new v.ErreurValidation('Bolondha introuvable');
+  }
   return {
     prenom: v.texte(body.prenom, 'prénom', { requis: true }),
     nom: v.texte(body.nom, 'nom', { requis: true }),
     telephone: v.texte(body.telephone, 'téléphone'),
     email: v.texte(body.email, 'email'),
+    ville: v.texte(body.ville, 'ville'),
+    bolondha_id,
     date_adhesion: s.versDate(v.date(body.date_adhesion, "date d'adhésion") || s.aujourdhui()),
     actif: body.actif === undefined ? true : Boolean(body.actif),
   };
@@ -40,14 +48,19 @@ function lire(body) {
 const introuvable = (res) => res.status(404).json({ erreur: 'Membre introuvable' });
 const estIntrouvable = (e) => e && e.code === 'P2025';
 
-// Liste (admin et agent)
+// Liste (admin et agent) — ?q= recherche texte, ?bolondha= filtre par bolondha
 router.get('/', async (req, res, next) => {
   try {
     const q = (req.query.q || '').trim();
     const like = `%${q}%`;
-    const where = q
-      ? Prisma.sql`WHERE m.prenom ILIKE ${like} OR m.nom ILIKE ${like} OR m.telephone ILIKE ${like}`
-      : Prisma.empty;
+    const bolondhaId = v.idOptionnel(req.query.bolondha);
+    const conditions = [];
+    if (q) {
+      conditions.push(Prisma.sql`(m.prenom ILIKE ${like} OR m.nom ILIKE ${like} OR m.telephone ILIKE ${like}
+        OR m.ville ILIKE ${like} OR b.nom ILIKE ${like})`);
+    }
+    if (bolondhaId) conditions.push(Prisma.sql`m.bolondha_id = ${bolondhaId}`);
+    const where = conditions.length ? Prisma.sql`WHERE ${Prisma.join(conditions, ' AND ')}` : Prisma.empty;
     const rows = await selectMembres(where);
     res.json(rows.map(s.membre));
   } catch (e) { next(e); }
@@ -81,7 +94,7 @@ router.get('/:id', async (req, res, next) => {
 // Ajouter (admin)
 router.post('/', role('admin'), async (req, res, next) => {
   try {
-    const m = await prisma.membre.create({ data: lire(req.body || {}) });
+    const m = await prisma.membre.create({ data: await lire(req.body || {}) });
     res.status(201).json(s.membre(m));
   } catch (e) { next(e); }
 });
@@ -90,7 +103,7 @@ router.post('/', role('admin'), async (req, res, next) => {
 router.put('/:id', role('admin'), async (req, res, next) => {
   try {
     const id = v.id(req.params.id);
-    const m = await prisma.membre.update({ where: { id }, data: lire(req.body || {}) });
+    const m = await prisma.membre.update({ where: { id }, data: await lire(req.body || {}) });
     res.json(s.membre(m));
   } catch (e) {
     if (estIntrouvable(e)) return introuvable(res);

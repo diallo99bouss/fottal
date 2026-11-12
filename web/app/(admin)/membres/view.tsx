@@ -14,10 +14,12 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
+import { Pagination, usePagination } from "@/components/ui/pagination";
+import { Select } from "@/components/ui/select";
 import { SkeletonTable } from "@/components/ui/skeleton";
 import { fmtDate, nomComplet } from "@/lib/format";
 import { useApi } from "@/lib/use-api";
-import type { Membre } from "@/types";
+import type { Bolondha, Membre } from "@/types";
 import { Search, UserPlus, Users } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -48,9 +50,24 @@ export function MembresView() {
     return () => clearTimeout(t);
   }, [q]);
 
+  // Filtre par bolondha : porté par l'URL (?bolondha=ID), ce qui permet d'y arriver depuis la page Bolondhas
+  const bolondhaFiltre = params.get("bolondha") ?? "";
+  const { data: bolondhas } = useApi<Bolondha[]>("/bolondhas");
+  function changerFiltre(id: string) {
+    const p = new URLSearchParams(params.toString());
+    if (id) p.set("bolondha", id);
+    else p.delete("bolondha");
+    router.replace("/membres" + (p.size ? "?" + p.toString() : ""));
+  }
+
+  const requete = new URLSearchParams();
+  if (recherche) requete.set("q", recherche);
+  if (bolondhaFiltre) requete.set("bolondha", bolondhaFiltre);
+  const filtreActif = !!(recherche || bolondhaFiltre);
   const { data: membres, error, reload } = useApi<Membre[]>(
-    "/membres" + (recherche ? "?q=" + encodeURIComponent(recherche) : ""),
+    "/membres" + (requete.size ? "?" + requete.toString() : ""),
   );
+  const pg = usePagination(membres, { resetKey: requete.toString() });
 
   const ouvrir = (id: number) => router.push(`/membres/fiche?id=${id}`);
 
@@ -84,16 +101,32 @@ export function MembresView() {
         }
       />
 
-      <div className="max-w-sm">
-        <Input
-          id="recherche-membres"
-          type="search"
-          aria-label="Rechercher un membre"
-          placeholder="Rechercher un nom ou un téléphone"
-          icon={<Search className="h-4 w-4" />}
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-        />
+      <div className="flex flex-col gap-3 sm:flex-row">
+        <div className="sm:w-80">
+          <Input
+            id="recherche-membres"
+            type="search"
+            aria-label="Rechercher un membre"
+            placeholder="Nom, téléphone, ville, bolondha…"
+            icon={<Search className="h-4 w-4" />}
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+        </div>
+        <Select
+          id="filtre-bolondha"
+          aria-label="Filtrer par bolondha"
+          containerClassName="sm:w-56"
+          value={bolondhaFiltre}
+          onChange={(e) => changerFiltre(e.target.value)}
+        >
+          <option value="">Toutes les bolondhas</option>
+          {bolondhas?.map((b) => (
+            <option key={b.id} value={b.id}>
+              {b.nom}
+            </option>
+          ))}
+        </Select>
       </div>
 
       {error && <ErrorBox message={error} />}
@@ -103,15 +136,15 @@ export function MembresView() {
       ) : membres.length === 0 ? (
         <EmptyState
           icon={<Users className="h-8 w-8" />}
-          title={recherche ? "Aucun membre ne correspond" : "Aucun membre pour l'instant"}
+          title={filtreActif ? "Aucun membre ne correspond" : "Aucun membre pour l'instant"}
           description={
-            recherche
-              ? "Essayez avec une autre partie du nom ou du numéro."
+            filtreActif
+              ? "Essayez une autre recherche ou une autre bolondha."
               : isAdmin
                 ? "Ajoutez le premier membre de l'association."
                 : undefined
           }
-          action={!recherche && isAdmin ? { label: "Ajouter un membre", onClick: () => setFormOpen(true) } : undefined}
+          action={!filtreActif && isAdmin ? { label: "Ajouter un membre", onClick: () => setFormOpen(true) } : undefined}
         />
       ) : (
         <Card className="overflow-hidden">
@@ -120,6 +153,8 @@ export function MembresView() {
               <thead className="border-b border-border bg-muted/50 text-left text-muted-foreground">
                 <tr>
                   <th className="px-5 py-3">Membre</th>
+                  <th className="px-5 py-3">Bolondha</th>
+                  <th className="px-5 py-3">Ville</th>
                   <th className="px-5 py-3">Téléphone</th>
                   <th className="px-5 py-3">Adhésion</th>
                   <th className="px-5 py-3">Statut</th>
@@ -132,7 +167,7 @@ export function MembresView() {
                 </tr>
               </thead>
               <tbody>
-                {membres.map((m) => (
+                {pg.pageItems.map((m) => (
                   <tr
                     key={m.id}
                     tabIndex={0}
@@ -149,6 +184,14 @@ export function MembresView() {
                         </div>
                       </div>
                     </td>
+                    <td className="whitespace-nowrap px-5 py-3">
+                      {m.bolondha ? (
+                        <Badge variant="default">{m.bolondha}</Badge>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </td>
+                    <td className="whitespace-nowrap px-5 py-3 text-muted-foreground">{m.ville || "—"}</td>
                     <td className="whitespace-nowrap px-5 py-3 text-muted-foreground">{m.telephone || "—"}</td>
                     <td className="whitespace-nowrap px-5 py-3 text-muted-foreground">{fmtDate(m.date_adhesion)}</td>
                     <td className="px-5 py-3">
@@ -171,6 +214,7 @@ export function MembresView() {
               </tbody>
             </table>
           </div>
+          <Pagination {...pg} />
         </Card>
       )}
 

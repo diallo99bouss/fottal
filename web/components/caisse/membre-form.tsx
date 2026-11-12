@@ -6,7 +6,8 @@ import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
 import { api, errMsg } from "@/lib/api";
 import { aujourdhui } from "@/lib/format";
-import type { Membre } from "@/types";
+import { useApi } from "@/lib/use-api";
+import type { Bolondha, Membre } from "@/types";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -31,11 +32,14 @@ function MembreFormInner({ onClose, onSaved, membre }: Omit<Props, "open">) {
     nom: membre?.nom ?? "",
     telephone: membre?.telephone ?? "",
     email: membre?.email ?? "",
+    ville: membre?.ville ?? "",
+    bolondha_id: membre?.bolondha_id ? String(membre.bolondha_id) : "",
     date_adhesion: membre?.date_adhesion ?? aujourdhui(),
     actif: membre?.actif ?? true,
   });
   const [loading, setLoading] = useState(false);
-  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) =>
+  const { data: bolondhas } = useApi<Bolondha[]>("/bolondhas");
+  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setF({ ...f, [k]: e.target.value });
 
   async function onSubmit(e: React.FormEvent) {
@@ -75,6 +79,21 @@ function MembreFormInner({ onClose, onSaved, membre }: Omit<Props, "open">) {
         <Input id="m-nom" label="Nom" required value={f.nom} onChange={set("nom")} />
         <Input id="m-tel" label="Téléphone" type="tel" value={f.telephone} onChange={set("telephone")} />
         <Input id="m-email" label="Email" type="email" value={f.email} onChange={set("email")} />
+        <Input id="m-ville" label="Ville" placeholder="ex. Paris" value={f.ville} onChange={set("ville")} />
+        <Select
+          id="m-bolondha"
+          label="Bolondha"
+          value={f.bolondha_id}
+          onChange={set("bolondha_id")}
+          hint={bolondhas && bolondhas.length === 0 ? "Aucune bolondha : créez-en dans Paramètres › Bolondhas" : undefined}
+        >
+          <option value="">— Aucune —</option>
+          {bolondhas?.map((b) => (
+            <option key={b.id} value={b.id}>
+              {b.nom}
+            </option>
+          ))}
+        </Select>
         <Input
           id="m-adh"
           label="Date d'adhésion"

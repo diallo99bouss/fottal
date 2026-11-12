@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { ConfirmModal } from "@/components/ui/modal";
+import { Pagination, usePagination } from "@/components/ui/pagination";
 import { Skeleton, SkeletonTable } from "@/components/ui/skeleton";
 import { StatCard } from "@/components/ui/stat-card";
 import { api, errMsg } from "@/lib/api";
@@ -42,12 +43,13 @@ export function FicheReunionView() {
     }
   }
 
-  if (!id) return <ErrorBox message="Aucune réunion sélectionnée." />;
-
   const f = filtre.trim().toLowerCase();
   const membres = (r?.membres ?? []).filter(
     (m) => !f || nomComplet(m).toLowerCase().includes(f) || (m.telephone ?? "").includes(f),
   );
+  const pg = usePagination(membres, { resetKey: f });
+
+  if (!id) return <ErrorBox message="Aucune réunion sélectionnée." />;
 
   return (
     <div className="space-y-6">
@@ -146,7 +148,7 @@ export function FicheReunionView() {
                 <p className="px-5 pb-5 text-sm text-muted-foreground">Aucun membre ne correspond.</p>
               ) : (
                 <ul className="divide-y divide-border border-t border-border">
-                  {membres.map((m) => {
+                  {pg.pageItems.map((m) => {
                     const paye = !!m.cotisation_id;
                     return (
                       <li key={m.id} className="flex items-center gap-3 px-5 py-3 hover:bg-muted/50">
@@ -163,6 +165,7 @@ export function FicheReunionView() {
                   })}
                 </ul>
               )}
+              <Pagination {...pg} />
             </CardContent>
           </Card>
 
