@@ -1,12 +1,13 @@
 "use client";
 
 import { useAuth } from "@/components/providers/auth-provider";
+import { LIBELLES_ROLES } from "@/config/navigation";
 import { cn, getInitials } from "@/lib/utils";
 import { ChevronDown, LogOut, ShieldCheck, UserRound } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 export function UserMenu() {
-  const { user, isAdmin, deconnecter } = useAuth();
+  const { user, isAdmin, isSuperAdmin, association, deconnecter } = useAuth();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -31,8 +32,8 @@ export function UserMenu() {
   }, [open]);
 
   if (!user) return null;
-  const RoleIcon = isAdmin ? ShieldCheck : UserRound;
-  const roleLabel = isAdmin ? "Administrateur" : "Agent";
+  const RoleIcon = isAdmin || isSuperAdmin ? ShieldCheck : UserRound;
+  const roleLabel = LIBELLES_ROLES[user.role];
 
   return (
     <div ref={rootRef} className="relative ml-1">
@@ -51,7 +52,7 @@ export function UserMenu() {
         <span className="hidden text-left md:block">
           <span className="block text-xs font-semibold leading-none">{user.nom}</span>
           <span className="mt-0.5 flex items-center gap-1 text-2xs text-muted-foreground">
-            <RoleIcon className={cn("h-3 w-3", isAdmin ? "text-success" : "text-info")} />
+            <RoleIcon className={cn("h-3 w-3", isSuperAdmin ? "text-warning" : isAdmin ? "text-success" : "text-info")} />
             {roleLabel}
           </span>
         </span>
@@ -71,7 +72,10 @@ export function UserMenu() {
         >
           <div className="border-b border-border px-2.5 pb-2.5 pt-1.5">
             <p className="truncate text-sm font-semibold">{user.nom}</p>
-            <p className="truncate text-xs text-muted-foreground">{roleLabel}</p>
+            <p className="truncate text-xs text-muted-foreground">
+              {roleLabel}
+              {association && ` · ${association.nom}`}
+            </p>
           </div>
           <div className="pt-1">
             <button

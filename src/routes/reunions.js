@@ -4,10 +4,10 @@ const v = require('../validation');
 const s = require('../serialize');
 const { role } = require('../middleware/auth');
 const aides = require('./aides');
-const { COUVERTURE } = require('../couverture');
+const { couverture } = require('../couverture');
 
 const router = express.Router();
-const COTISATION_REUNION = 30; // 15 € x 2 mois
+// Toutes les requêtes sont limitées à l'association de l'utilisateur : req.asso (middleware association)
 const MODES = ['especes', 'virement', 'autre'];
 
 // Statistiques par réunion :
@@ -16,9 +16,10 @@ const MODES = ['especes', 'virement', 'autre'];
 //     une réunion est réglée si les versements du membre, affectés du plus ancien retard
 //     au plus récent, la couvrent — même si l'argent a été donné à une réunion suivante
 //   encaisse = argent réellement reçu à CETTE réunion (sert au bilan et à la remise)
-async function selectReunions(where = Prisma.empty) {
+async function selectReunions(asso, conditions = []) {
+  const where = Prisma.join([Prisma.sql`r.association_id = ${asso}`, ...conditions], ' AND ');
   const rows = await prisma.$queryRaw`
-    WITH ${COUVERTURE}
+    WITH ${couverture(asso)}
     SELECT r.*,
       (SELECT count(*) FROM couverture cv WHERE cv.reunion_id = r.id)::int                                  AS attendus,
       (SELECT count(*) FROM couverture cv WHERE cv.reunion_id = r.id AND cv.couvert >= cv.montant)::int     AS payes,
@@ -29,7 +30,7 @@ async function selectReunions(where = Prisma.empty) {
       (SELECT string_agg(rm.depositaire_nom, ', ' ORDER BY rm.montant DESC) FROM remises rm WHERE rm.reunion_id = r.id) AS depositaires,
       (SELECT COALESCE(sum(cv.montant - cv.couvert),0) FROM couverture cv WHERE cv.reunion_id = r.id)::float AS reste
     FROM reunions r
-    ${where}
+    WHERE ${where}
     ORDER BY r.date DESC`;
   return rows.map((row) => {
     const r = s.reunion(row);
@@ -44,18 +45,31 @@ async function selectReunions(where = Prisma.empty) {
   });
 }
 
-// Date conseillée : 2 mois après la dernière réunion
-async function prochaineDate() {
-  const { _max } = await prisma.reunion.aggregate({ _max: { date: true } });
-  return _max.date ? s.ajouterMois(s.jour(_max.date), 2) : null;
+// Réglages de l'association : cotisation par réunion et nombre de mois entre deux réunions
+async function reglages(asso) {
+  const a = await prisma.association.findUnique({
+    where: { id: asso },
+    select: { montant_cotisation: true, intervalle_mois: true },
+  });
+  return { montant: s.nombre(a.montant_cotisation), intervalle: a.intervalle_mois };
 }
 
-function lire(body) {
+// Date conseillée : « intervalle » mois après la dernière réunion de l'association
+async function prochaineDate(asso) {
+  const [{ _max }, { intervalle }] = await Promise.all([
+    prisma.reunion.aggregate({ where: { association_id: asso }, _max: { date: true } }),
+    reglages(asso),
+  ]);
+  return _max.date ? s.ajouterMois(s.jour(_max.date), intervalle) : null;
+}
+
+// Montant par défaut d'une nouvelle réunion : la cotisation réglée pour l'association
+async function lire(body, asso) {
   return {
     date: s.versDate(v.date(body.date, 'date', { requis: true })),
     lieu: v.texte(body.lieu, 'lieu'),
     notes: v.texte(body.notes, 'notes'),
-    montant: v.montant(body.montant, 'montant', COTISATION_REUNION),
+    montant: v.montant(body.montant, 'montant', (await reglages(asso)).montant),
   };
 }
 
@@ -64,13 +78,26 @@ const estIntrouvable = (e) => e && e.code === 'P2025';
 
 router.get('/', async (req, res, next) => {
   try {
-    res.json(await selectReunions());
+    res.json(await selectReunions(req.asso));
   } catch (e) { next(e); }
 });
 
 router.get('/prochaine-date', async (req, res, next) => {
   try {
-    res.json({ date: await prochaineDate() });
+    res.json({ date: await prochaineDate(req.asso) });
+  } catch (e) { next(e); }
+});
+
+// Toute route /:id (détail, modification, cotisations, aides, remises) :
+// la réunion doit appartenir à l'association de l'utilisateur, sinon 404
+router.use('/:id', async (req, res, next) => {
+  try {
+    const r = await prisma.reunion.findFirst({
+      where: { id: v.id(req.params.id), association_id: req.asso },
+      select: { id: true },
+    });
+    if (!r) return introuvable(res);
+    next();
   } catch (e) { next(e); }
 });
 
@@ -78,10 +105,11 @@ router.get('/prochaine-date', async (req, res, next) => {
 router.get('/:id', async (req, res, next) => {
   try {
     const id = v.id(req.params.id);
-    const [r] = await selectReunions(Prisma.sql`WHERE r.id = ${id}`);
+    const [r] = await selectReunions(req.asso, [Prisma.sql`r.id = ${id}`]);
     if (!r) return introuvable(res);
     const membres = await prisma.membre.findMany({
       where: {
+        association_id: req.asso,
         OR: [
           { actif: true, date_adhesion: { lte: s.versDate(r.date) } },
           { cotisations: { some: { reunion_id: id } } },
@@ -99,7 +127,7 @@ router.get('/:id', async (req, res, next) => {
     // Par membre : part de cette réunion réglée, et tout ce qu'il doit jusqu'à cette réunion incluse
     // (retards + cotisation du jour) — sert à préremplir le montant à encaisser
     const couv = await prisma.$queryRaw`
-      WITH ${COUVERTURE}
+      WITH ${couverture(req.asso)}
       SELECT cv.membre_id,
              cv.couvert::float AS couvert,
              (SELECT COALESCE(sum(c2.montant - c2.couvert), 0) FROM couverture c2
@@ -131,14 +159,16 @@ router.get('/:id', async (req, res, next) => {
 
 router.post('/', role('admin'), async (req, res, next) => {
   try {
-    const r = await prisma.reunion.create({ data: lire(req.body || {}) });
+    const data = await lire(req.body || {}, req.asso);
+    const r = await prisma.reunion.create({ data: { ...data, association_id: req.asso } });
     res.status(201).json(s.reunion(r));
   } catch (e) { next(e); }
 });
 
 router.put('/:id', role('admin'), async (req, res, next) => {
   try {
-    const r = await prisma.reunion.update({ where: { id: v.id(req.params.id) }, data: lire(req.body || {}) });
+    const data = await lire(req.body || {}, req.asso);
+    const r = await prisma.reunion.update({ where: { id: v.id(req.params.id), association_id: req.asso }, data });
     res.json(s.reunion(r));
   } catch (e) {
     if (estIntrouvable(e)) return introuvable(res);
@@ -148,7 +178,7 @@ router.put('/:id', role('admin'), async (req, res, next) => {
 
 router.delete('/:id', role('admin'), async (req, res, next) => {
   try {
-    await prisma.reunion.delete({ where: { id: v.id(req.params.id) } });
+    await prisma.reunion.delete({ where: { id: v.id(req.params.id), association_id: req.asso } });
     res.json({ ok: true });
   } catch (e) {
     if (estIntrouvable(e)) return introuvable(res);
@@ -177,7 +207,7 @@ router.post('/:id/cotisations', role('admin', 'agent'), async (req, res, next) =
     const r = await prisma.reunion.findUnique({ where: { id: reunionId }, select: { montant: true } });
     if (!r) return introuvable(res);
     const { montant, mode } = lireVersement(body, s.nombre(r.montant));
-    const m = await prisma.membre.findUnique({ where: { id: membreId }, select: { id: true } });
+    const m = await prisma.membre.findFirst({ where: { id: membreId, association_id: req.asso }, select: { id: true } });
     if (!m) return res.status(404).json({ erreur: 'Membre introuvable' });
     const c = await prisma.cotisation.create({
       data: { reunion_id: reunionId, membre_id: membreId, montant, mode, encaisse_par: req.utilisateur.id },

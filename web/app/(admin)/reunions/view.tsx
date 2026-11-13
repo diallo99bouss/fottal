@@ -14,7 +14,7 @@ import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Pagination, usePagination } from "@/components/ui/pagination";
 import { SkeletonTable } from "@/components/ui/skeleton";
-import { aujourdhui, eur, fmtDate } from "@/lib/format";
+import { aujourdhui, eur, fmtDate, regleCotisation } from "@/lib/format";
 import { useApi } from "@/lib/use-api";
 import { cn } from "@/lib/utils";
 import type { Reunion } from "@/types";
@@ -23,7 +23,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 export function ReunionsView() {
-  const { isAdmin } = useAuth();
+  const { isAdmin, association } = useAuth();
   const router = useRouter();
   const reunions = useApi<Reunion[]>("/reunions");
   const pg = usePagination(reunions.data);
@@ -59,7 +59,7 @@ export function ReunionsView() {
     <div className="space-y-6">
       <PageHeader
         title="Réunions"
-        description="Une réunion tous les 2 mois · 30 € par membre"
+        description={regleCotisation(association)}
         actions={
           isAdmin && (
             <Button onClick={() => setFormOpen(true)}>

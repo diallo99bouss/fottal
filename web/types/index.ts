@@ -7,6 +7,7 @@ export interface NavItem {
   icon?: LucideIcon;
   badge?: string | number;
   children?: NavItem[];
+  roles?: Role[]; // visible seulement pour ces rôles (tous si absent)
 }
 
 export interface NavGroup {
@@ -15,13 +16,79 @@ export interface NavGroup {
 }
 
 // ---------- Données de l'API Express ----------
-export type Role = "admin" | "agent";
+// superadmin : administre l'application ; admin : président d'une association ; agent : gérant
+export type Role = "superadmin" | "admin" | "agent";
+
+// Association de l'utilisateur connecté (réglages utiles partout)
+export interface AssociationInfo {
+  id: number;
+  nom: string;
+  montant_cotisation: number; // cotisation par réunion
+  intervalle_mois: number; // mois entre deux réunions
+}
 
 export interface Utilisateur {
   id: number;
   nom: string;
   email?: string;
   role: Role;
+  association_id: number | null;
+  association: AssociationInfo | null;
+}
+
+// Compte de connexion (gestion des comptes)
+export interface Compte {
+  id: number;
+  nom: string;
+  email: string;
+  role: Role;
+  telephone: string | null;
+  adresse: string | null;
+  ville: string | null;
+  association_id: number | null;
+  cree_le: string;
+}
+
+// ---------- Règlement (Lois et règles) ----------
+export interface Article {
+  titre?: string;
+  texte: string;
+}
+
+export interface SectionReglement {
+  titre: string;
+  articles: Article[];
+}
+
+export interface Reglement {
+  introduction: string;
+  misAJourLe: string | null;
+  sections: SectionReglement[];
+}
+
+export interface AssociationDetail extends AssociationInfo {
+  reglement: Reglement | null;
+  cree_le: string;
+}
+
+// Ligne de la liste des associations (espace super-admin)
+export interface AssociationResume {
+  id: number;
+  nom: string;
+  actif: boolean;
+  cree_le: string;
+  montant_cotisation: number;
+  intervalle_mois: number;
+  membres: number;
+  reunions: number;
+  comptes: number;
+  agents: number;
+  derniere_reunion: string | null;
+  administrateurs: string | null; // noms de tous les administrateurs
+  // Président (premier administrateur) et ses coordonnées
+  president: string | null;
+  president_telephone: string | null;
+  president_ville: string | null;
 }
 
 export interface Membre {
