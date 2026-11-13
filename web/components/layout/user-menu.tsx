@@ -45,7 +45,7 @@ export function UserMenu() {
         aria-label="Menu du compte"
         className="flex h-9 items-center gap-2 rounded-xl border border-border/80 bg-background px-1 shadow-card transition-colors hover:border-primary/30 hover:bg-primary/5 sm:px-2.5"
       >
-        <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-teal-500 text-2xs font-bold text-white">
+        <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-[#7dc142] text-2xs font-bold text-white">
           {getInitials(user.nom)}
         </span>
         <span className="hidden text-left md:block">

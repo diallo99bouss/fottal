@@ -159,14 +159,17 @@ export function ReunionsView() {
                     </td>
                     <td className="px-5 py-3">
                       <p className="font-medium tabular-nums">{eur(r.restant)}</p>
-                      {r.depositaire_nom ? (
-                        <p className={cn("text-xs", r.remise_a_jour ? "text-muted-foreground" : "text-warning")}>
-                          {r.remise_a_jour ? "→ " : "⚠ "}
-                          {r.depositaire_nom}
+                      {r.depositaires && (
+                        <p className={cn("text-xs", r.a_confier < 0 ? "text-warning" : "text-muted-foreground")}>
+                          {r.a_confier < 0 ? "⚠ " : "→ "}
+                          {r.depositaires}
                         </p>
-                      ) : r.restant > 0 ? (
-                        <p className="text-xs text-warning">non confié</p>
-                      ) : null}
+                      )}
+                      {r.a_confier > 0 && (
+                        <p className="text-xs text-warning">
+                          {r.total_remis > 0 ? `${eur(r.a_confier)} restent à confier` : "non confié"}
+                        </p>
+                      )}
                     </td>
                     {isAdmin && (
                       <td className="px-3 py-3">

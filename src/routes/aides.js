@@ -53,10 +53,11 @@ async function lireAide(body) {
   return { type, montant, membre_id, beneficiaire_nom, motif: v.texte(body.motif, 'motif') };
 }
 
-// On ne verse pas plus que ce qui a été encaissé à cette réunion
-function verifierFonds(b, montant) {
-  if (montant > b.restant) {
-    throw new Conflit(`Fonds insuffisants : il reste ${s.euros(Math.max(0, b.restant))} disponibles sur cette réunion`);
+// On ne verse pas plus que ce qui reste dans la caisse de la réunion (encaissé − aides − déjà confié)
+async function verifierFonds(reunionId, b, montant) {
+  const dispo = Math.round((b.restant - (await totalRemis(reunionId))) * 100) / 100;
+  if (montant > dispo) {
+    throw new Conflit(`Fonds insuffisants : il reste ${s.euros(Math.max(0, dispo))} disponibles sur cette réunion`);
   }
 }
 
@@ -67,7 +68,7 @@ router.post('/aides', async (req, res, next) => {
     const r = await reunionOu404(req, res);
     if (!r) return;
     const data = await lireAide(req.body || {});
-    verifierFonds(await bilan(r.id), data.montant);
+    await verifierFonds(r.id, await bilan(r.id), data.montant);
     const a = await prisma.aide.create({ data: { ...data, reunion_id: r.id, enregistre_par: req.utilisateur.id } });
     res.status(201).json(s.aide(a));
   } catch (e) { next(e); }
@@ -81,7 +82,7 @@ router.put('/aides/:aideId', async (req, res, next) => {
     const existe = await prisma.aide.findFirst({ where: { id: aideId, reunion_id: r.id } });
     if (!existe) return res.status(404).json({ erreur: 'Aide introuvable' });
     const data = await lireAide(req.body || {});
-    verifierFonds(await bilan(r.id, { sansAide: aideId }), data.montant);
+    await verifierFonds(r.id, await bilan(r.id, { sansAide: aideId }), data.montant);
     const a = await prisma.aide.update({ where: { id: aideId }, data });
     res.json(s.aide(a));
   } catch (e) { next(e); }
@@ -97,35 +98,77 @@ router.delete('/aides/:aideId', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-// ---- Remise du restant à un membre ----
+// ---- Remises : le restant est confié à une ou plusieurs personnes ----
 
-// Confier (ou mettre à jour) : le montant et le nom sont figés à cet instant
-router.put('/remise', async (req, res, next) => {
+const arrondi = (n) => Math.round(n * 100) / 100;
+
+// Restant de la réunion déjà confié (hors remise en cours de modification)
+async function totalRemis(reunionId, sauf) {
+  const { _sum } = await prisma.remise.aggregate({
+    where: { reunion_id: reunionId, ...(sauf ? { NOT: { id: sauf } } : {}) },
+    _sum: { montant: true },
+  });
+  return s.nombre(_sum.montant) || 0;
+}
+
+// Lit le membre dépositaire et le montant (par défaut : tout ce qui reste à confier)
+async function lireRemise(body, aConfier) {
+  const membre_id = v.id(body.membre_id);
+  const m = await prisma.membre.findUnique({ where: { id: membre_id }, select: { prenom: true, nom: true } });
+  if (!m) throw new v.ErreurValidation('Membre introuvable');
+  const montant = v.montant(body.montant, 'montant', aConfier);
+  if (!(montant > 0)) throw new v.ErreurValidation('Le montant confié doit être supérieur à 0');
+  if (montant > aConfier) {
+    throw new Conflit(`Il ne reste que ${s.euros(Math.max(0, aConfier))} à confier sur cette réunion`);
+  }
+  return { membre_id, depositaire_nom: `${m.prenom} ${m.nom}`, montant };
+}
+
+router.post('/remises', async (req, res, next) => {
   try {
     const r = await reunionOu404(req, res);
     if (!r) return;
-    const depositaire_id = v.id((req.body || {}).depositaire_id);
-    const m = await prisma.membre.findUnique({ where: { id: depositaire_id }, select: { prenom: true, nom: true } });
-    if (!m) return res.status(400).json({ erreur: 'Membre introuvable' });
     const { restant } = await bilan(r.id);
-    if (restant <= 0) return res.status(409).json({ erreur: "Il n'y a pas de restant à confier pour cette réunion" });
-    const maj = await prisma.reunion.update({
-      where: { id: r.id },
-      data: { depositaire_id, depositaire_nom: `${m.prenom} ${m.nom}`, montant_remis: restant, remis_le: new Date() },
-    });
-    res.json(s.reunion(maj));
-  } catch (e) { next(e); }
+    const aConfier = arrondi(restant - (await totalRemis(r.id)));
+    if (aConfier <= 0) return res.status(409).json({ erreur: 'Tout le restant de cette réunion est déjà confié' });
+    const data = await lireRemise(req.body || {}, aConfier);
+    const remise = await prisma.remise.create({ data: { ...data, reunion_id: r.id } });
+    res.status(201).json(s.remise(remise));
+  } catch (e) {
+    if (e && e.code === 'P2002') {
+      return res.status(409).json({ erreur: 'Ce membre a déjà une part : modifiez son montant' });
+    }
+    next(e);
+  }
 });
 
-router.delete('/remise', async (req, res, next) => {
+router.put('/remises/:remiseId', async (req, res, next) => {
   try {
     const r = await reunionOu404(req, res);
     if (!r) return;
-    const maj = await prisma.reunion.update({
-      where: { id: r.id },
-      data: { depositaire_id: null, depositaire_nom: null, montant_remis: null, remis_le: null },
+    const remiseId = v.id(req.params.remiseId);
+    const existe = await prisma.remise.findFirst({ where: { id: remiseId, reunion_id: r.id } });
+    if (!existe) return res.status(404).json({ erreur: 'Remise introuvable' });
+    const { restant } = await bilan(r.id);
+    const aConfier = arrondi(restant - (await totalRemis(r.id, remiseId)));
+    const data = await lireRemise({ membre_id: existe.membre_id, ...(req.body || {}) }, aConfier);
+    const remise = await prisma.remise.update({ where: { id: remiseId }, data: { ...data, remis_le: new Date() } });
+    res.json(s.remise(remise));
+  } catch (e) {
+    if (e && e.code === 'P2002') {
+      return res.status(409).json({ erreur: 'Ce membre a déjà une part : modifiez son montant' });
+    }
+    next(e);
+  }
+});
+
+router.delete('/remises/:remiseId', async (req, res, next) => {
+  try {
+    const { count } = await prisma.remise.deleteMany({
+      where: { id: v.id(req.params.remiseId), reunion_id: v.id(req.params.id) },
     });
-    res.json(s.reunion(maj));
+    if (!count) return res.status(404).json({ erreur: 'Remise introuvable' });
+    res.json({ ok: true });
   } catch (e) { next(e); }
 });
 

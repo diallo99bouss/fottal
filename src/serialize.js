@@ -28,11 +28,12 @@ function ajouterMois(s, n) {
 }
 
 const membre = (m) => m && { ...m, date_adhesion: jour(m.date_adhesion) };
-const reunion = (r) => r && { ...r, date: jour(r.date), montant: nombre(r.montant), montant_remis: nombre(r.montant_remis) };
+const reunion = (r) => r && { ...r, date: jour(r.date), montant: nombre(r.montant) };
 const cotisation = (c) => c && { ...c, montant: nombre(c.montant) };
 const aide = (a) => a && { ...a, montant: nombre(a.montant) };
+const remise = (r) => r && { ...r, montant: nombre(r.montant) };
 
 // 1234.5 -> "1 234,5 €" (messages d'erreur)
 const euros = (n) => Number(n).toLocaleString("fr-FR", { maximumFractionDigits: 2 }) + " €";
 
-module.exports = { jour, nombre, versDate, aujourdhui, ajouterMois, membre, reunion, cotisation, aide, euros };
+module.exports = { jour, nombre, versDate, aujourdhui, ajouterMois, membre, reunion, cotisation, aide, remise, euros };

@@ -1,7 +1,7 @@
 "use client";
 
 import { ErrorBox } from "@/components/caisse/shared";
-import { VersementButton } from "@/components/caisse/versement";
+import { detailVersement, VersementButton } from "@/components/caisse/versement";
 import { MembreForm } from "@/components/caisse/membre-form";
 import { PageHeader } from "@/components/layout/page-header";
 import { useAuth } from "@/components/providers/auth-provider";
@@ -14,7 +14,7 @@ import { Pagination, usePagination } from "@/components/ui/pagination";
 import { Skeleton, SkeletonTable } from "@/components/ui/skeleton";
 import { StatCard } from "@/components/ui/stat-card";
 import { api, errMsg } from "@/lib/api";
-import { eur, fmtDate, nomComplet } from "@/lib/format";
+import { aujourdhui, eur, fmtDate, nomComplet } from "@/lib/format";
 import { useApi } from "@/lib/use-api";
 import type { MembreDetail } from "@/types";
 import { CalendarX, HandCoins, Mail, MapPin, Pencil, Phone, Trash2, Wallet } from "lucide-react";
@@ -28,6 +28,15 @@ export function FicheMembreView() {
   const id = useSearchParams().get("id");
   const { data: m, error, reload } = useApi<MembreDetail>(id ? `/membres/${id}` : null);
   const pg = usePagination(m?.historique);
+  // Ce qu'il doit jusqu'à chaque réunion incluse (retards + cotisation du jour) : montant proposé à l'encaissement
+  const duJusqua = new Map<number, number>();
+  [...(m?.historique ?? [])]
+    .sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id)
+    .reduce((cumul, h) => {
+      const total = cumul + (h.montant - h.couvert);
+      duJusqua.set(h.id, total);
+      return total;
+    }, 0);
   const [editOpen, setEditOpen] = useState(false);
   const [delOpen, setDelOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -157,7 +166,14 @@ export function FicheMembreView() {
                       {pg.pageItems.map((r) => (
                         <tr key={r.id} className="border-b border-border hover:bg-muted/50">
                           <td className="whitespace-nowrap px-5 py-3 font-medium">{fmtDate(r.date)}</td>
-                          <td className="px-5 py-3 text-muted-foreground">{r.lieu || "Réunion"}</td>
+                          <td className="px-5 py-3">
+                            <p className="text-muted-foreground">{r.lieu || "Réunion"}</p>
+                            {detailVersement({ attendu: r.montant, paye: r.montant_paye, couvert: r.couvert }) && (
+                              <p className="text-xs text-muted-foreground">
+                                {detailVersement({ attendu: r.montant, paye: r.montant_paye, couvert: r.couvert })}
+                              </p>
+                            )}
+                          </td>
                           <td className="whitespace-nowrap px-5 py-3 text-muted-foreground">
                             {r.paye_le ? fmtDate(r.paye_le) : "—"}
                           </td>
@@ -171,6 +187,9 @@ export function FicheMembreView() {
                               membreNom={nomComplet(m)}
                               attendu={r.montant}
                               paye={r.montant_paye}
+                              couvert={r.couvert}
+                              duCumule={duJusqua.get(r.id)}
+                              aVenir={r.date > aujourdhui()}
                               mode={r.mode}
                               onChange={reload}
                             />

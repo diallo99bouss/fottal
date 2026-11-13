@@ -3,6 +3,7 @@ const { prisma, Prisma } = require('../db');
 const v = require('../validation');
 const s = require('../serialize');
 const { role } = require('../middleware/auth');
+const { COUVERTURE } = require('../couverture');
 
 const router = express.Router();
 
@@ -10,10 +11,13 @@ const router = express.Router();
 //   total_attendu = somme des cotisations des réunions passées depuis l'adhésion
 //   total_paye    = tout ce qu'il a versé (30 €, 50 €… selon les fois)
 //   montant_du    = attendu − payé si positif ; avance = payé − attendu si positif
+//   reunions_dues = réunions passées pas entièrement réglées, une fois les versements
+//                   répartis du plus ancien retard au plus récent (voir couverture.js)
 // Un membre inactif ne doit plus rien (comme avant).
 // Agrégat calculé en SQL : plus clair et plus rapide qu'en passant par l'ORM.
 function selectMembres(where = Prisma.empty) {
   return prisma.$queryRaw`
+    WITH ${COUVERTURE}
     SELECT m.*,
       b.nom                                                    AS bolondha,
       COALESCE(d.nb, 0)::int                                   AS reunions_dues,
@@ -24,14 +28,11 @@ function selectMembres(where = Prisma.empty) {
     FROM membres m
     LEFT JOIN bolondhas b ON b.id = m.bolondha_id
     LEFT JOIN LATERAL (
-      -- Réunions passées depuis l'adhésion : montant attendu et nombre de réunions pas (entièrement) payées
-      SELECT sum(r.montant) AS attendu,
-             count(*) FILTER (WHERE COALESCE(c.montant, 0) < r.montant) AS nb
-      FROM reunions r
-      LEFT JOIN cotisations c ON c.reunion_id = r.id AND c.membre_id = m.id
-      WHERE r.date <= CURRENT_DATE
-        AND r.date >= m.date_adhesion
-        AND m.actif
+      -- Réunions passées depuis l'adhésion : montant attendu et nombre de réunions pas entièrement réglées
+      SELECT sum(cv.montant) AS attendu,
+             count(*) FILTER (WHERE cv.couvert < cv.montant) AS nb
+      FROM couverture cv
+      WHERE cv.membre_id = m.id AND cv.date <= CURRENT_DATE
     ) d ON TRUE
     LEFT JOIN LATERAL (
       SELECT sum(c.montant) AS paye FROM cotisations c WHERE c.membre_id = m.id
@@ -89,11 +90,18 @@ router.get('/:id', async (req, res, next) => {
       orderBy: { date: 'desc' },
       include: { cotisations: { where: { membre_id: id } } },
     });
+    // Part de chaque réunion réglée par l'ensemble de ses versements (du plus ancien retard au plus récent)
+    const couv = await prisma.$queryRaw`
+      WITH ${COUVERTURE}
+      SELECT reunion_id, couvert::float AS couvert FROM couverture WHERE membre_id = ${id}`;
+    const couvertPar = new Map(couv.map((c) => [c.reunion_id, c.couvert]));
     const historique = reunions.map(({ cotisations: [c], ...r }) => ({
       id: r.id,
       date: s.jour(r.date),
       lieu: r.lieu,
       montant: s.nombre(r.montant),
+      // Membre inactif : pas de répartition, on prend ce qu'il a versé à cette réunion
+      couvert: couvertPar.has(r.id) ? couvertPar.get(r.id) : Math.min(s.nombre(r.montant), c ? s.nombre(c.montant) : 0),
       cotisation_id: c ? c.id : null,
       montant_paye: c ? s.nombre(c.montant) : null,
       paye_le: c ? c.paye_le : null,

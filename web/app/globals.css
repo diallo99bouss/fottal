@@ -4,15 +4,16 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme inline {
-  --color-primary: #6366f1;
+  /* Couleur principale : vert FOTTAL (logo). Plus claire en mode sombre (voir --primary) */
+  --color-primary: var(--primary);
   --color-primary-foreground: #ffffff;
-  --color-primary-50: #eef2ff;
-  --color-primary-100: #e0e7ff;
-  --color-primary-200: #c7d2fe;
-  --color-primary-500: #6366f1;
-  --color-primary-600: #4f46e5;
-  --color-primary-700: #4338ca;
-  --color-primary-900: #312e81;
+  --color-primary-50: #ecf8f1;
+  --color-primary-100: #d0eedd;
+  --color-primary-200: #a3dcbd;
+  --color-primary-500: #1a7f52;
+  --color-primary-600: #156a44;
+  --color-primary-700: #115636;
+  --color-primary-900: #0a3321;
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -73,7 +74,8 @@
   --card-foreground: #111827;
   --border: #e5e7eb;
   --input: #e5e7eb;
-  --ring: #6366f1;
+  --primary: #1a7f52;
+  --ring: #1a7f52;
   --accent: #f3f4f6;
   --accent-foreground: #111827;
   --destructive: #ef4444;
@@ -83,8 +85,8 @@
   --info: #3b82f6;
 
   /* Chart palette (500 shades read well on white) */
-  --chart-1: #6366f1;
-  --chart-2: #8b5cf6;
+  --chart-1: #1a7f52;
+  --chart-2: #7dc142;
   --chart-3: #10b981;
   --chart-4: #f59e0b;
   --chart-5: #ec4899;
@@ -107,7 +109,8 @@
   --card-foreground: #f1f5f9;
   --border: #334155;
   --input: #334155;
-  --ring: #818cf8;
+  --primary: #23935f;
+  --ring: #4cc38a;
   --accent: #1e293b;
   --accent-foreground: #f1f5f9;
   --destructive: #f87171;
@@ -117,7 +120,7 @@
   --info: #60a5fa;
 
   /* Lighter 400 shades keep contrast on the dark card background */
-  --chart-1: #818cf8;
+  --chart-1: #4cc38a;
   --chart-2: #a78bfa;
   --chart-3: #34d399;
   --chart-4: #fbbf24;
@@ -264,7 +267,7 @@ body {
 
 /* Gradient backgrounds */
 .gradient-primary {
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  background: linear-gradient(135deg, #1a7f52 0%, #7dc142 100%);
 }
 .gradient-success {
   background: linear-gradient(135deg, #10b981 0%, #059669 100%);

@@ -1,28 +1,53 @@
-import { siteConfig } from "@/config/site";
 import { cn } from "@/lib/utils";
-import { Wallet } from "lucide-react";
+import Image from "next/image";
 
 interface LogoMarkProps {
   className?: string;
   showWordmark?: boolean;
+  size?: "md" | "lg";
 }
 
-export function LogoMark({ className, showWordmark = true }: LogoMarkProps) {
+// Emblème FOTTAL + nom. Le nom est du texte (et non l'image) pour rester lisible en mode sombre.
+export function LogoMark({ className, showWordmark = true, size = "md" }: LogoMarkProps) {
+  const lg = size === "lg";
   return (
     <div className={cn("flex items-center gap-2.5", className)}>
-      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-teal-500 text-white shadow-card">
-        <Wallet className="h-[18px] w-[18px]" aria-hidden="true" />
-      </span>
+      <Image
+        src="/brand/fottal-embleme.png"
+        alt={showWordmark ? "" : "Fottal"}
+        width={lg ? 56 : 40}
+        height={lg ? 56 : 40}
+        priority
+        className={cn("shrink-0", lg ? "h-14 w-14" : "h-10 w-10")}
+      />
       {showWordmark && (
-        <div className="min-w-0">
-          <p className="truncate text-[15px] font-bold leading-none text-foreground">
-            {siteConfig.shortName}
-          </p>
-          <p className="mt-1 truncate text-2xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-            Association
-          </p>
-        </div>
+        <p
+          className={cn(
+            "min-w-0 truncate font-extrabold leading-none tracking-[0.12em] text-[#1A7F52] dark:text-[#4CC38A]",
+            lg ? "text-2xl" : "text-xl",
+          )}
+        >
+          FOTTAL
+        </p>
       )}
+    </div>
+  );
+}
+
+// Logo complet (emblème au-dessus du nom), pour la page de connexion.
+// En mode sombre, le vert foncé du nom manque de contraste : on affiche alors LogoMark.
+export function LogoComplet({ className }: { className?: string }) {
+  return (
+    <div className={cn("flex justify-center", className)}>
+      <Image
+        src="/brand/fottal-logo.png"
+        alt="Fottal"
+        width={560}
+        height={481}
+        priority
+        className="h-auto w-40 dark:hidden"
+      />
+      <LogoMark size="lg" className="hidden dark:flex" />
     </div>
   );
 }

@@ -4,26 +4,30 @@ const v = require('../validation');
 const s = require('../serialize');
 const { role } = require('../middleware/auth');
 const aides = require('./aides');
+const { COUVERTURE } = require('../couverture');
 
 const router = express.Router();
 const COTISATION_REUNION = 30; // 15 € x 2 mois
 const MODES = ['especes', 'virement', 'autre'];
 
-// Statistiques par réunion : membres attendus (actifs et inscrits avant la date), payés, encaissé.
-// Les montants versés sont libres : « reste » additionne ce qui manque à chaque membre attendu
-// (rien versé = toute la cotisation ; 20 € sur 30 = 10 €), sans compter les versements en plus.
+// Statistiques par réunion :
+//   attendus = membres actifs inscrits avant la date
+//   payes / partiels / reste = selon la répartition des versements (couverture.js) :
+//     une réunion est réglée si les versements du membre, affectés du plus ancien retard
+//     au plus récent, la couvrent — même si l'argent a été donné à une réunion suivante
+//   encaisse = argent réellement reçu à CETTE réunion (sert au bilan et à la remise)
 async function selectReunions(where = Prisma.empty) {
   const rows = await prisma.$queryRaw`
+    WITH ${COUVERTURE}
     SELECT r.*,
-      (SELECT count(*) FROM membres m WHERE m.actif AND m.date_adhesion <= r.date)::int AS attendus,
-      (SELECT count(*) FROM cotisations c WHERE c.reunion_id = r.id)::int                AS payes,
-      (SELECT count(*) FROM cotisations c WHERE c.reunion_id = r.id AND c.montant < r.montant)::int AS partiels,
-      (SELECT COALESCE(sum(c.montant),0) FROM cotisations c WHERE c.reunion_id = r.id)::float AS encaisse,
-      (SELECT COALESCE(sum(a.montant),0) FROM aides a WHERE a.reunion_id = r.id)::float       AS total_aides,
-      (SELECT COALESCE(sum(GREATEST(r.montant - COALESCE(c.montant, 0), 0)), 0)
-         FROM membres m
-         LEFT JOIN cotisations c ON c.reunion_id = r.id AND c.membre_id = m.id
-        WHERE m.actif AND m.date_adhesion <= r.date)::float                             AS reste
+      (SELECT count(*) FROM couverture cv WHERE cv.reunion_id = r.id)::int                                  AS attendus,
+      (SELECT count(*) FROM couverture cv WHERE cv.reunion_id = r.id AND cv.couvert >= cv.montant)::int     AS payes,
+      (SELECT count(*) FROM couverture cv WHERE cv.reunion_id = r.id AND cv.couvert > 0 AND cv.couvert < cv.montant)::int AS partiels,
+      (SELECT COALESCE(sum(c.montant),0) FROM cotisations c WHERE c.reunion_id = r.id)::float               AS encaisse,
+      (SELECT COALESCE(sum(a.montant),0) FROM aides a WHERE a.reunion_id = r.id)::float                     AS total_aides,
+      (SELECT COALESCE(sum(rm.montant),0) FROM remises rm WHERE rm.reunion_id = r.id)::float                AS total_remis,
+      (SELECT string_agg(rm.depositaire_nom, ', ' ORDER BY rm.montant DESC) FROM remises rm WHERE rm.reunion_id = r.id) AS depositaires,
+      (SELECT COALESCE(sum(cv.montant - cv.couvert),0) FROM couverture cv WHERE cv.reunion_id = r.id)::float AS reste
     FROM reunions r
     ${where}
     ORDER BY r.date DESC`;
@@ -33,8 +37,9 @@ async function selectReunions(where = Prisma.empty) {
     return {
       ...r,
       restant, // encaissé − aides : l'argent à confier
-      // false si une cotisation ou une aide a changé depuis la remise
-      remise_a_jour: r.montant_remis === null || r.montant_remis === restant,
+      // Partie du restant pas encore confiée (négatif si on a confié plus que le restant,
+      // par ex. après une aide ou un versement modifié)
+      a_confier: Math.round((restant - r.total_remis) * 100) / 100,
     };
   });
 }
@@ -91,12 +96,30 @@ router.get('/:id', async (req, res, next) => {
         cotisations: { where: { reunion_id: id } },
       },
     });
-    const listeAides = await prisma.aide.findMany({ where: { reunion_id: id }, orderBy: { cree_le: 'asc' } });
+    // Par membre : part de cette réunion réglée, et tout ce qu'il doit jusqu'à cette réunion incluse
+    // (retards + cotisation du jour) — sert à préremplir le montant à encaisser
+    const couv = await prisma.$queryRaw`
+      WITH ${COUVERTURE}
+      SELECT cv.membre_id,
+             cv.couvert::float AS couvert,
+             (SELECT COALESCE(sum(c2.montant - c2.couvert), 0) FROM couverture c2
+               WHERE c2.membre_id = cv.membre_id AND c2.date <= cv.date)::float AS du_cumule
+        FROM couverture cv
+       WHERE cv.reunion_id = ${id}`;
+    const couvPar = new Map(couv.map((c) => [c.membre_id, c]));
+    const [listeAides, listeRemises] = await Promise.all([
+      prisma.aide.findMany({ where: { reunion_id: id }, orderBy: { cree_le: 'asc' } }),
+      prisma.remise.findMany({ where: { reunion_id: id }, orderBy: { remis_le: 'asc' } }),
+    ]);
     res.json({
       ...r,
       aides: listeAides.map(s.aide),
+      remises: listeRemises.map(s.remise),
       membres: membres.map(({ cotisations: [c], ...m }) => ({
         ...m,
+        // Membre inactif (pas de répartition) : on prend ce qu'il a versé ici
+        couvert: couvPar.has(m.id) ? couvPar.get(m.id).couvert : Math.min(r.montant, c ? s.nombre(c.montant) : 0),
+        du_cumule: couvPar.has(m.id) ? couvPar.get(m.id).du_cumule : 0,
         cotisation_id: c ? c.id : null,
         montant_paye: c ? s.nombre(c.montant) : null,
         paye_le: c ? c.paye_le : null,
