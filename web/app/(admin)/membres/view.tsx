@@ -1,6 +1,6 @@
 "use client";
 
-import { DueBadge, ErrorBox } from "@/components/caisse/shared";
+import { ErrorBox, estAJour, SituationBadge } from "@/components/caisse/shared";
 import { MembreForm } from "@/components/caisse/membre-form";
 import { RowActions } from "@/components/caisse/row-actions";
 import { ConfirmModal } from "@/components/ui/modal";
@@ -17,7 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Pagination, usePagination } from "@/components/ui/pagination";
 import { Select } from "@/components/ui/select";
 import { SkeletonTable } from "@/components/ui/skeleton";
-import { fmtDate, nomComplet } from "@/lib/format";
+import { eur, fmtDate, nomComplet } from "@/lib/format";
 import { useApi } from "@/lib/use-api";
 import type { Bolondha, Membre } from "@/types";
 import { Search, UserPlus, Users } from "lucide-react";
@@ -53,21 +53,29 @@ export function MembresView() {
   // Filtre par bolondha : porté par l'URL (?bolondha=ID), ce qui permet d'y arriver depuis la page Bolondhas
   const bolondhaFiltre = params.get("bolondha") ?? "";
   const { data: bolondhas } = useApi<Bolondha[]>("/bolondhas");
-  function changerFiltre(id: string) {
+  // Filtre par situation (?situation=a-jour|retard) : appliqué sur la liste reçue
+  const situation = params.get("situation") ?? "";
+  function changerFiltre(cle: "bolondha" | "situation", valeur: string) {
     const p = new URLSearchParams(params.toString());
-    if (id) p.set("bolondha", id);
-    else p.delete("bolondha");
+    if (valeur) p.set(cle, valeur);
+    else p.delete(cle);
     router.replace("/membres" + (p.size ? "?" + p.toString() : ""));
   }
 
   const requete = new URLSearchParams();
   if (recherche) requete.set("q", recherche);
   if (bolondhaFiltre) requete.set("bolondha", bolondhaFiltre);
-  const filtreActif = !!(recherche || bolondhaFiltre);
+  const filtreActif = !!(recherche || bolondhaFiltre || situation);
   const { data: membres, error, reload } = useApi<Membre[]>(
     "/membres" + (requete.size ? "?" + requete.toString() : ""),
   );
-  const pg = usePagination(membres, { resetKey: requete.toString() });
+  const actifs = (membres ?? []).filter((m) => m.actif);
+  const nbAJour = actifs.filter(estAJour).length;
+  const nbRetard = actifs.length - nbAJour;
+  const affiches = membres?.filter((m) =>
+    situation === "a-jour" ? m.actif && estAJour(m) : situation === "retard" ? !estAJour(m) : true,
+  );
+  const pg = usePagination(affiches, { resetKey: requete.toString() + situation });
 
   const ouvrir = (id: number) => router.push(`/membres/fiche?id=${id}`);
 
@@ -90,7 +98,11 @@ export function MembresView() {
     <div className="space-y-6">
       <PageHeader
         title="Membres"
-        description={membres ? `${membres.length} membre${membres.length > 1 ? "s" : ""}` : "Chargement…"}
+        description={
+          membres
+            ? `${membres.length} membre${membres.length > 1 ? "s" : ""} · ${nbAJour} à jour · ${nbRetard} pas à jour`
+            : "Chargement…"
+        }
         actions={
           isAdmin && (
             <Button onClick={() => setFormOpen(true)}>
@@ -118,7 +130,7 @@ export function MembresView() {
           aria-label="Filtrer par bolondha"
           containerClassName="sm:w-56"
           value={bolondhaFiltre}
-          onChange={(e) => changerFiltre(e.target.value)}
+          onChange={(e) => changerFiltre("bolondha", e.target.value)}
         >
           <option value="">Toutes les bolondhas</option>
           {bolondhas?.map((b) => (
@@ -127,19 +139,30 @@ export function MembresView() {
             </option>
           ))}
         </Select>
+        <Select
+          id="filtre-situation"
+          aria-label="Filtrer par situation"
+          containerClassName="sm:w-48"
+          value={situation}
+          onChange={(e) => changerFiltre("situation", e.target.value)}
+        >
+          <option value="">Toutes les situations</option>
+          <option value="a-jour">À jour ({nbAJour})</option>
+          <option value="retard">Pas à jour ({nbRetard})</option>
+        </Select>
       </div>
 
       {error && <ErrorBox message={error} />}
 
       {!membres ? (
         !error && <SkeletonTable rows={5} />
-      ) : membres.length === 0 ? (
+      ) : !affiches || affiches.length === 0 ? (
         <EmptyState
           icon={<Users className="h-8 w-8" />}
           title={filtreActif ? "Aucun membre ne correspond" : "Aucun membre pour l'instant"}
           description={
             filtreActif
-              ? "Essayez une autre recherche ou une autre bolondha."
+              ? "Essayez une autre recherche, une autre bolondha ou une autre situation."
               : isAdmin
                 ? "Ajoutez le premier membre de l'association."
                 : undefined
@@ -158,7 +181,8 @@ export function MembresView() {
                   <th className="px-5 py-3">Téléphone</th>
                   <th className="px-5 py-3">Adhésion</th>
                   <th className="px-5 py-3">Statut</th>
-                  <th className="px-5 py-3 text-right">Cotisations</th>
+                  <th className="px-5 py-3">Situation</th>
+                  <th className="px-5 py-3 text-right">Reste dû</th>
                   {isAdmin && (
                     <th className="px-5 py-3 text-right">
                       <span className="sr-only">Actions</span>
@@ -197,8 +221,17 @@ export function MembresView() {
                     <td className="px-5 py-3">
                       {m.actif ? <Badge variant="info">Actif</Badge> : <Badge variant="secondary">Inactif</Badge>}
                     </td>
-                    <td className="px-5 py-3 text-right">
-                      <DueBadge montant={m.montant_du} avance={m.avance} />
+                    <td className="whitespace-nowrap px-5 py-3">
+                      <SituationBadge actif={m.actif} montant_du={m.montant_du} />
+                    </td>
+                    <td className="whitespace-nowrap px-5 py-3 text-right tabular-nums">
+                      {m.montant_du > 0 ? (
+                        <span className="font-semibold text-destructive">{eur(m.montant_du)}</span>
+                      ) : m.avance > 0 ? (
+                        <span className="text-info">Avance {eur(m.avance)}</span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
                     </td>
                     {isAdmin && (
                       <td className="px-3 py-3">

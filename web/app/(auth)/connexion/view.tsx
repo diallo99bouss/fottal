@@ -4,7 +4,7 @@ import { useAuth } from "@/components/providers/auth-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { LogoMark } from "@/components/ui/logo";
+import { LogoComplet } from "@/components/ui/logo";
 import { siteConfig } from "@/config/site";
 import { errMsg } from "@/lib/api";
 import { AlertCircle } from "lucide-react";
@@ -41,8 +41,8 @@ export function ConnexionView() {
   return (
     <Card className="w-full max-w-md shadow-dropdown animate-fade-in-up">
       <CardHeader className="text-center">
-        <LogoMark className="mx-auto mb-3 w-fit" />
-        <CardTitle className="text-2xl">{siteConfig.name}</CardTitle>
+        <LogoComplet className="mb-2" />
+        <CardTitle className="text-xl">{siteConfig.sousTitre}</CardTitle>
         <p className="mt-2 text-sm text-muted-foreground">
           Connectez-vous avec votre compte administrateur ou agent.
         </p>

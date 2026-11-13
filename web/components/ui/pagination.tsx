@@ -74,8 +74,8 @@ interface PaginationProps {
 }
 
 export function Pagination({ page, pages, pageSize, total, debut, setPage, setPageSize, className }: PaginationProps) {
-  // Inutile d'afficher la barre si tout tient sur la plus petite page
-  if (total <= TAILLES_PAGE[0]) return null;
+  // Barre toujours visible (même sur une seule page), sauf si le tableau est vide
+  if (total === 0) return null;
   const fin = Math.min(debut + pageSize, total);
 
   return (
@@ -107,47 +107,45 @@ export function Pagination({ page, pages, pageSize, total, debut, setPage, setPa
         </label>
       </div>
 
-      {pages > 1 && (
-        <div className="flex items-center gap-1">
-          <Button
-            variant="outline"
-            size="icon-sm"
-            onClick={() => setPage(page - 1)}
-            disabled={page === 1}
-            aria-label="Page précédente"
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          {numeros(page, pages).map((n, i) =>
-            n === "…" ? (
-              <span key={`e${i}`} className="px-1.5 text-muted-foreground" aria-hidden="true">
-                …
-              </span>
-            ) : (
-              <Button
-                key={n}
-                variant={n === page ? "default" : "ghost"}
-                size="icon-sm"
-                onClick={() => setPage(n)}
-                aria-label={`Page ${n}`}
-                aria-current={n === page ? "page" : undefined}
-                className="tabular-nums"
-              >
-                {n}
-              </Button>
-            ),
-          )}
-          <Button
-            variant="outline"
-            size="icon-sm"
-            onClick={() => setPage(page + 1)}
-            disabled={page === pages}
-            aria-label="Page suivante"
-          >
-            <ChevronRight className="h-4 w-4" />
-          </Button>
-        </div>
-      )}
+      <div className="flex items-center gap-1">
+        <Button
+          variant="outline"
+          size="icon-sm"
+          onClick={() => setPage(page - 1)}
+          disabled={page === 1}
+          aria-label="Page précédente"
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </Button>
+        {numeros(page, pages).map((n, i) =>
+          n === "…" ? (
+            <span key={`e${i}`} className="px-1.5 text-muted-foreground" aria-hidden="true">
+              …
+            </span>
+          ) : (
+            <Button
+              key={n}
+              variant={n === page ? "default" : "ghost"}
+              size="icon-sm"
+              onClick={() => setPage(n)}
+              aria-label={`Page ${n}`}
+              aria-current={n === page ? "page" : undefined}
+              className="tabular-nums"
+            >
+              {n}
+            </Button>
+          ),
+        )}
+        <Button
+          variant="outline"
+          size="icon-sm"
+          onClick={() => setPage(page + 1)}
+          disabled={page === pages}
+          aria-label="Page suivante"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </Button>
+      </div>
     </nav>
   );
 }

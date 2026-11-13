@@ -13,7 +13,7 @@ let server, base;
 
 before(async () => {
   // Repart d'une base vide puis applique les migrations Prisma
-  await prisma.$executeRawUnsafe('DROP TABLE IF EXISTS aides, cotisations, reunions, membres, bolondhas, utilisateurs, _prisma_migrations CASCADE');
+  await prisma.$executeRawUnsafe('DROP TABLE IF EXISTS remises, aides, cotisations, reunions, membres, bolondhas, utilisateurs, _prisma_migrations CASCADE');
   const dossier = path.join(__dirname, '..', 'prisma', 'migrations');
   for (const m of fs.readdirSync(dossier).filter((d) => fs.statSync(path.join(dossier, d)).isDirectory()).sort()) {
     const sql = fs.readFileSync(path.join(dossier, m, 'migration.sql'), 'utf8');
@@ -172,32 +172,51 @@ test('bilan de réunion : aides maladie/décès et remise du restant', async () 
   assert.strictEqual(detail.restant, 15);
   assert.strictEqual(detail.aides.length, 2);
 
-  // Remise du restant
-  const remise = await agent('PUT', `/reunions/${r.id}/remise`, { depositaire_id: b.id });
-  assert.strictEqual(remise.status, 200);
-  assert.strictEqual(remise.body.montant_remis, 15);
-  assert.strictEqual(remise.body.depositaire_nom, 'Ibrahima Kane');
-  detail = (await agent('GET', '/reunions/' + r.id)).body;
-  assert.strictEqual(detail.remise_a_jour, true);
+  // Le restant (15 €) est partagé entre deux personnes
+  const remises = `/reunions/${r.id}/remises`;
+  const rB = await agent('POST', remises, { membre_id: b.id, montant: 10 });
+  assert.strictEqual(rB.status, 201);
+  assert.strictEqual(rB.body.montant, 10);
+  assert.strictEqual(rB.body.depositaire_nom, 'Ibrahima Kane');
+  assert.strictEqual((await agent('POST', remises, { membre_id: b.id, montant: 1 })).status, 409); // déjà une part
+  assert.strictEqual((await agent('POST', remises, { membre_id: a.id, montant: 6 })).status, 409); // plus que le reste
+  const rA = await agent('POST', remises, { membre_id: a.id }); // par défaut : tout le reste
+  assert.strictEqual(rA.body.montant, 5);
+  assert.strictEqual((await agent('POST', remises, { membre_id: a.id })).status, 409); // tout est confié
 
-  // Modifier une aide rend la remise obsolète, puis on la met à jour
-  assert.strictEqual((await admin('PUT', `/reunions/${r.id}/aides/${deces.body.id}`, { type: 'deces', beneficiaire_nom: 'Famille Diop', montant: 30 })).status, 200);
   detail = (await agent('GET', '/reunions/' + r.id)).body;
-  assert.strictEqual(detail.restant, 5);
-  assert.strictEqual(detail.remise_a_jour, false);
-  assert.strictEqual((await agent('PUT', `/reunions/${r.id}/remise`, { depositaire_id: b.id })).body.montant_remis, 5);
+  assert.strictEqual(detail.total_remis, 15);
+  assert.strictEqual(detail.a_confier, 0);
+  assert.strictEqual(detail.remises.length, 2);
+  assert.strictEqual(detail.depositaires, 'Ibrahima Kane, Awa Ba');
+  assert.strictEqual((await agent('GET', '/reunions')).body.find((x) => x.id === r.id).depositaires, 'Ibrahima Kane, Awa Ba');
 
-  // Annuler une cotisation est refusé si les aides dépassent alors l'encaissé (60 − 30 < 55)
+  // L'argent déjà confié n'est plus disponible pour une aide
+  const aideDeces = `/reunions/${r.id}/aides/${deces.body.id}`;
+  const partAwa = `${remises}/${rA.body.id}`;
+  assert.strictEqual((await admin('PUT', aideDeces, { type: 'deces', beneficiaire_nom: 'Famille Diop', montant: 30 })).status, 409);
+  assert.strictEqual((await agent('PUT', partAwa, { montant: 0 })).status, 400);
+  assert.strictEqual((await agent('PUT', partAwa, { montant: 4 })).body.montant, 4);
+
+  // On reprend la part d'Awa : 5 € redeviennent disponibles pour l'aide décès (20 -> 25)
+  assert.strictEqual((await agent('DELETE', partAwa)).status, 200);
+  assert.strictEqual((await agent('DELETE', partAwa)).status, 404);
+  assert.strictEqual((await admin('PUT', aideDeces, { type: 'deces', beneficiaire_nom: 'Famille Diop', montant: 25 })).status, 200);
+  detail = (await agent('GET', '/reunions/' + r.id)).body;
+  assert.strictEqual(detail.restant, 10);
+  assert.strictEqual(detail.a_confier, 0);
+
+  // Annuler une cotisation est refusé si les aides dépassent alors l'encaissé (60 − 30 < 50)
   assert.strictEqual((await agent('DELETE', `/reunions/${r.id}/cotisations/${a.id}`)).status, 409);
 
   // Tableau de bord : en caisse = encaissé − aides
   const tb = (await admin('GET', '/tableau')).body;
-  assert.strictEqual(tb.aides_versees, 55);
+  assert.strictEqual(tb.aides_versees, 50);
 
   // Suppression d'une aide, annulation de la remise
   assert.strictEqual((await agent('DELETE', `/reunions/${r.id}/aides/${maladie.body.id}`)).status, 200);
   assert.strictEqual((await agent('DELETE', `/reunions/${r.id}/aides/${maladie.body.id}`)).status, 404);
-  assert.strictEqual((await agent('DELETE', `/reunions/${r.id}/remise`)).body.depositaire_id, null);
+  assert.strictEqual((await agent('DELETE', `/reunions/${r.id}/remises/${rB.body.id}`)).status, 200);
 });
 
 test('cotisations à montant libre : reste dû et avance', async () => {
@@ -221,10 +240,12 @@ test('cotisations à montant libre : reste dû et avance', async () => {
   assert.strictEqual(m.montant_du, Math.max(0, avant.total_attendu + 60 - 70));
   assert.strictEqual(m.historique.find((h) => h.id === r2.id).montant_paye, 20);
 
-  // Réunion 2 : 20 € sur 30 -> paiement partiel, 10 € de reste
+  // Réunion 2 : 20 € versés, mais les 20 € donnés en trop à la réunion 1 la complètent -> réglée
   const d2 = (await admin('GET', '/reunions/' + r2.id)).body;
-  assert.strictEqual(d2.partiels, 1);
-  assert.strictEqual(d2.reste, 10);
+  assert.strictEqual(d2.partiels, 0);
+  assert.strictEqual(d2.reste, 0);
+  assert.strictEqual(d2.encaisse, 20); // la caisse de la réunion 2 n'a reçu que 20 €
+  assert.strictEqual(m.historique.find((h) => h.id === r2.id).couvert, 30);
 
   // Modifier un versement : 20 -> 40
   assert.strictEqual((await agent('PUT', `/reunions/${r2.id}/cotisations/${z.id}`, { montant: 40 })).body.montant, 40);
@@ -238,4 +259,41 @@ test('cotisations à montant libre : reste dû et avance', async () => {
   m = await solde(z.id);
   assert.strictEqual(m.montant_du, 0);
   assert.strictEqual(m.avance, 10);
+});
+
+test('un versement comble d\'abord le retard de la réunion précédente', async () => {
+  const admin = await login('admin@test.fr');
+  const agent = await login('agent@test.fr');
+
+  // Membre récent : seules ces deux réunions le concernent
+  const k = (await admin('POST', '/membres', { prenom: 'Kadiatou', nom: 'Barry', date_adhesion: '2026-08-01' })).body;
+  const prec = (await admin('POST', '/reunions', { date: '2026-08-15' })).body;
+  const jour = (await admin('POST', '/reunions', { date: '2026-10-15' })).body;
+
+  // Réunion précédente : 15 € sur 30 -> 15 € de retard
+  await agent('POST', `/reunions/${prec.id}/cotisations`, { membre_id: k.id, montant: 15 });
+  let detail = (await agent('GET', '/reunions/' + jour.id)).body;
+  let ligne = detail.membres.find((m) => m.id === k.id);
+  assert.strictEqual(ligne.du_cumule, 45); // 15 € de retard + 30 € du jour : montant proposé à l'encaissement
+  assert.strictEqual(ligne.couvert, 0);
+
+  // Réunion du jour : il verse 45 € -> 15 € complètent la précédente, 30 € paient celle du jour
+  await agent('POST', `/reunions/${jour.id}/cotisations`, { membre_id: k.id, montant: 45 });
+
+  const precDetail = (await agent('GET', '/reunions/' + prec.id)).body;
+  const lignePrec = precDetail.membres.find((m) => m.id === k.id);
+  assert.strictEqual(lignePrec.montant_paye, 15); // versé ce jour-là
+  assert.strictEqual(lignePrec.couvert, 30); // mais réglée grâce au versement suivant
+
+  detail = (await agent('GET', '/reunions/' + jour.id)).body;
+  ligne = detail.membres.find((m) => m.id === k.id);
+  assert.strictEqual(ligne.montant_paye, 45);
+  assert.strictEqual(ligne.couvert, 30);
+  assert.strictEqual(ligne.du_cumule, 0);
+  assert.strictEqual(detail.encaisse, 45); // les 45 € sont bien dans la caisse du jour
+
+  const fiche = (await admin('GET', '/membres/' + k.id)).body;
+  assert.strictEqual(fiche.montant_du, 0);
+  assert.strictEqual(fiche.reunions_dues, 0);
+  assert.ok(fiche.historique.every((h) => h.couvert === h.montant));
 });

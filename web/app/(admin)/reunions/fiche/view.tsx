@@ -1,7 +1,7 @@
 "use client";
 
 import { ErrorBox, Progress } from "@/components/caisse/shared";
-import { VersementButton } from "@/components/caisse/versement";
+import { detailVersement, VersementButton } from "@/components/caisse/versement";
 import { BilanReunion } from "@/components/caisse/bilan-reunion";
 import { ReunionForm } from "@/components/caisse/reunion-form";
 import { PageHeader } from "@/components/layout/page-header";
@@ -15,7 +15,7 @@ import { Pagination, usePagination } from "@/components/ui/pagination";
 import { Skeleton, SkeletonTable } from "@/components/ui/skeleton";
 import { StatCard } from "@/components/ui/stat-card";
 import { api, errMsg } from "@/lib/api";
-import { eur, fmtDate, nomComplet } from "@/lib/format";
+import { aujourdhui, eur, fmtDate, nomComplet } from "@/lib/format";
 import { useApi } from "@/lib/use-api";
 import type { ReunionDetail } from "@/types";
 import { AlertTriangle, CheckCircle2, FileText, Pencil, PiggyBank, Search, Trash2 } from "lucide-react";
@@ -162,14 +162,16 @@ export function FicheReunionView() {
               ) : (
                 <ul className="divide-y divide-border border-t border-border">
                   {pg.pageItems.map((m) => {
-                    const paye = !!m.cotisation_id;
+                    const detail = detailVersement({ attendu: r.montant, paye: m.montant_paye, couvert: m.couvert });
                     return (
                       <li key={m.id} className="flex items-center gap-3 px-5 py-3 hover:bg-muted/50">
                         <Avatar name={nomComplet(m)} size="sm" />
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-medium">{nomComplet(m)}</p>
                           <p className="text-xs text-muted-foreground">
-                            {paye ? `Versé ${eur(m.montant_paye)} le ${fmtDate(m.paye_le)}` : m.telephone || "Non payé"}
+                            {detail
+                              ? detail + (m.paye_le ? ` · le ${fmtDate(m.paye_le)}` : "")
+                              : m.telephone || "Non payé"}
                           </p>
                         </div>
                         <VersementButton
@@ -178,6 +180,9 @@ export function FicheReunionView() {
                           membreNom={nomComplet(m)}
                           attendu={r.montant}
                           paye={m.montant_paye}
+                          couvert={m.couvert}
+                          duCumule={m.du_cumule}
+                          aVenir={r.date > aujourdhui()}
                           mode={m.mode}
                           onChange={reload}
                         />

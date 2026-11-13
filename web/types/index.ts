@@ -53,6 +53,7 @@ export interface LigneHistorique {
   date: string;
   lieu: string | null;
   montant: number;
+  couvert: number; // part réglée (versements répartis du plus ancien retard au plus récent)
   cotisation_id: number | null;
   montant_paye: number | null;
   paye_le: string | null;
@@ -76,12 +77,19 @@ export interface Reunion {
   reste: number; // cotisations encore dues
   total_aides: number;
   restant: number; // encaissé − aides : l'argent à confier
-  // Remise du restant à un membre
-  depositaire_id: number | null;
-  depositaire_nom: string | null;
-  montant_remis: number | null;
-  remis_le: string | null;
-  remise_a_jour: boolean; // false si le restant a changé depuis la remise
+  // Restant confié à une ou plusieurs personnes
+  total_remis: number;
+  a_confier: number; // restant − total confié (négatif : on a confié plus que le restant)
+  depositaires: string | null; // « Moussa Bah, Awa Ba »
+}
+
+export interface Remise {
+  id: number;
+  reunion_id: number;
+  membre_id: number | null;
+  depositaire_nom: string;
+  montant: number;
+  remis_le: string;
 }
 
 export type TypeAide = "maladie" | "deces" | "autre";
@@ -102,6 +110,8 @@ export interface MembreReunion {
   prenom: string;
   nom: string;
   telephone: string | null;
+  couvert: number; // part de cette réunion réglée
+  du_cumule: number; // tout ce qu'il doit jusqu'à cette réunion incluse (retards + jour)
   cotisation_id: number | null;
   montant_paye: number | null;
   paye_le: string | null;
@@ -110,6 +120,7 @@ export interface MembreReunion {
 
 export interface ReunionDetail extends Reunion {
   aides: Aide[];
+  remises: Remise[];
   membres: MembreReunion[];
 }
 

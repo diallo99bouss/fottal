@@ -1,18 +1,18 @@
 "use client";
 
 import { AideForm } from "@/components/caisse/aide-form";
+import { RemisesReunion } from "@/components/caisse/remises-reunion";
 import { RowActions } from "@/components/caisse/row-actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConfirmModal } from "@/components/ui/modal";
-import { Select } from "@/components/ui/select";
 import { api, errMsg } from "@/lib/api";
-import { eur, fmtDate, nomComplet, TYPES_AIDE } from "@/lib/format";
+import { eur, TYPES_AIDE } from "@/lib/format";
 import { useApi } from "@/lib/use-api";
 import { cn } from "@/lib/utils";
 import type { Aide, Membre, ReunionDetail } from "@/types";
-import { AlertTriangle, HandCoins, HandHeart, Plus, RefreshCw, Undo2 } from "lucide-react";
+import { HandCoins, HandHeart, Plus } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -24,7 +24,6 @@ export function BilanReunion({ r, onChange }: { r: ReunionDetail; onChange: () =
   const [formOpen, setFormOpen] = useState(false);
   const [aModifier, setAModifier] = useState<Aide | null>(null);
   const [aSupprimer, setASupprimer] = useState<Aide | null>(null);
-  const [depositaire, setDepositaire] = useState("");
   const [busy, setBusy] = useState(false);
 
   async function action(fn: () => Promise<unknown>, ok: string) {
@@ -42,9 +41,6 @@ export function BilanReunion({ r, onChange }: { r: ReunionDetail; onChange: () =
     }
   }
 
-  const confier = (id: string | number) =>
-    action(() => api("PUT", `/reunions/${r.id}/remise`, { depositaire_id: Number(id) }), "Restant confié");
-
   const ligne = "flex items-center justify-between gap-4 px-5 py-2.5 text-sm";
 
   return (
@@ -57,7 +53,7 @@ export function BilanReunion({ r, onChange }: { r: ReunionDetail; onChange: () =
           </CardTitle>
           <CardDescription>Cotisations du jour, aides versées et restant confié à un membre</CardDescription>
         </div>
-        <Button size="sm" variant="outline" onClick={() => setFormOpen(true)} disabled={r.restant <= 0}>
+        <Button size="sm" variant="outline" onClick={() => setFormOpen(true)} disabled={r.a_confier <= 0}>
           <Plus className="h-4 w-4" />
           Ajouter une aide
         </Button>
@@ -111,77 +107,8 @@ export function BilanReunion({ r, onChange }: { r: ReunionDetail; onChange: () =
           </ul>
         )}
 
-        {/* Remise du restant */}
-        <div className="space-y-3 px-5 py-4">
-          {r.depositaire_nom ? (
-            <>
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-sm">
-                  <span className="text-muted-foreground">Restant confié à </span>
-                  <b>{r.depositaire_nom}</b>
-                  <span className="text-muted-foreground"> le {fmtDate(r.remis_le)} : </span>
-                  <b className="tabular-nums">{eur(r.montant_remis)}</b>
-                </p>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={busy}
-                  onClick={() => action(() => api("DELETE", `/reunions/${r.id}/remise`), "Remise annulée")}
-                >
-                  <Undo2 className="h-4 w-4" />
-                  Annuler la remise
-                </Button>
-              </div>
-              {!r.remise_a_jour && (
-                <div
-                  role="alert"
-                  className="flex flex-col gap-3 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2.5 text-sm sm:flex-row sm:items-center sm:justify-between"
-                >
-                  <span className="flex items-center gap-2 text-warning">
-                    <AlertTriangle className="h-4 w-4 shrink-0" />
-                    Le restant a changé depuis la remise ({eur(r.montant_remis)} → {eur(r.restant)}).
-                  </span>
-                  {r.depositaire_id && r.restant > 0 && (
-                    <Button size="sm" variant="outline" disabled={busy} onClick={() => confier(r.depositaire_id!)}>
-                      <RefreshCw className="h-4 w-4" />
-                      Mettre à jour
-                    </Button>
-                  )}
-                </div>
-              )}
-            </>
-          ) : r.restant > 0 ? (
-            <form
-              className="flex flex-col gap-2 sm:flex-row sm:items-end"
-              onSubmit={async (e) => {
-                e.preventDefault();
-                if (await confier(depositaire)) setDepositaire("");
-              }}
-            >
-              <Select
-                id="depositaire"
-                label="Qui repart avec le restant ?"
-                containerClassName="sm:w-72"
-                required
-                value={depositaire}
-                onChange={(e) => setDepositaire(e.target.value)}
-              >
-                <option value="">— Choisir un membre —</option>
-                {membres?.filter((m) => m.actif).map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {nomComplet(m)}
-                  </option>
-                ))}
-              </Select>
-              <Button type="submit" isLoading={busy}>
-                <HandCoins className="h-4 w-4" />
-                Confier {eur(r.restant)}
-              </Button>
-            </form>
-          ) : (
-            <p className="text-sm text-muted-foreground">Aucun restant à confier pour cette réunion.</p>
-          )}
-        </div>
+        {/* Restant confié à une ou plusieurs personnes */}
+        <RemisesReunion r={r} membres={membres ?? []} onChange={onChange} />
       </CardContent>
 
       <AideForm
@@ -193,7 +120,7 @@ export function BilanReunion({ r, onChange }: { r: ReunionDetail; onChange: () =
         onSaved={onChange}
         reunionId={r.id}
         membres={membres ?? []}
-        disponible={r.restant}
+        disponible={r.a_confier}
         aide={aModifier}
       />
       <ConfirmModal

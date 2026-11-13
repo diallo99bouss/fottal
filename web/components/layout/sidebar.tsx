@@ -142,7 +142,12 @@ export function Sidebar() {
         )}
       >
         {/* Brand */}
-        <div className="flex h-[68px] items-center justify-between border-b border-sidebar-border px-4">
+        <div
+          className={cn(
+            "flex h-[68px] items-center justify-between border-b border-sidebar-border",
+            isCollapsed ? "px-2" : "px-4",
+          )}
+        >
           {!isCollapsed && (
             <Link href="/" aria-label="Tableau de bord" onClick={closeMobile}>
               <LogoMark />

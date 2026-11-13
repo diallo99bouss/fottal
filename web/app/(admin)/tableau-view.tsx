@@ -127,8 +127,8 @@ export function TableauView() {
               <CardTitle>Cotisations en retard</CardTitle>
               <CardDescription>Membres ayant le plus de réunions impayées</CardDescription>
             </div>
-            <Link href="/membres" className="text-xs font-medium text-primary hover:underline">
-              Tous les membres
+            <Link href="/membres?situation=retard" className="text-xs font-medium text-primary hover:underline">
+              Tous les membres pas à jour
             </Link>
           </CardHeader>
           <CardContent className="px-0 pb-2">
