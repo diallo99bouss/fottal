@@ -1,16 +1,19 @@
 "use client";
 
 import { api, SESSION_EXPIREE } from "@/lib/api";
-import type { Utilisateur } from "@/types";
+import type { AssociationInfo, Utilisateur } from "@/types";
 import { useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 
 interface AuthContext {
   // undefined = vérification en cours, null = non connecté
   user: Utilisateur | null | undefined;
-  isAdmin: boolean;
-  connecter: (email: string, motDePasse: string) => Promise<void>;
+  isAdmin: boolean; // président de son association
+  isSuperAdmin: boolean; // administrateur de l'application
+  association: AssociationInfo | null; // association de l'utilisateur (null pour le super-admin)
+  connecter: (email: string, motDePasse: string) => Promise<Utilisateur>;
   deconnecter: () => Promise<void>;
+  rafraichir: () => Promise<void>; // relit le profil (ex. après un changement de réglages)
 }
 
 const Ctx = createContext<AuthContext | null>(null);
@@ -31,6 +34,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const connecter = useCallback(async (email: string, motDePasse: string) => {
     const u = await api<Utilisateur>("POST", "/auth/login", { email, motDePasse });
     setUser(u);
+    return u;
   }, []);
 
   const deconnecter = useCallback(async () => {
@@ -39,8 +43,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     router.replace("/connexion");
   }, [router]);
 
+  const rafraichir = useCallback(async () => {
+    const u = await api<Utilisateur>("GET", "/auth/me").catch(() => null);
+    setUser(u);
+  }, []);
+
   return (
-    <Ctx.Provider value={{ user, isAdmin: user?.role === "admin", connecter, deconnecter }}>
+    <Ctx.Provider
+      value={{
+        user,
+        isAdmin: user?.role === "admin",
+        isSuperAdmin: user?.role === "superadmin",
+        association: user?.association ?? null,
+        connecter,
+        deconnecter,
+        rafraichir,
+      }}
+    >
       {children}
     </Ctx.Provider>
   );

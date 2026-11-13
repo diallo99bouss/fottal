@@ -4,25 +4,29 @@ const s = require('../serialize');
 const { prochaineDate } = require('./reunions');
 
 const router = express.Router();
+// Chiffres de l'association de l'utilisateur uniquement : req.asso (middleware association)
 
 router.get('/', async (req, res, next) => {
   try {
+    const asso = req.asso;
+    const deLaReunion = { reunion: { association_id: asso } };
     const [membres, caisse, aides, du, prochaine, conseillee] = await Promise.all([
-      prisma.membre.count({ where: { actif: true } }),
-      prisma.cotisation.aggregate({ _sum: { montant: true } }),
-      prisma.aide.aggregate({ _sum: { montant: true } }),
+      prisma.membre.count({ where: { association_id: asso, actif: true } }),
+      prisma.cotisation.aggregate({ where: deLaReunion, _sum: { montant: true } }),
+      prisma.aide.aggregate({ where: deLaReunion, _sum: { montant: true } }),
       // Somme de ce que doit chaque membre actif (attendu − payé, positif) ; une avance ne compense pas la dette d'un autre
       prisma.$queryRaw`
         SELECT COALESCE(sum(GREATEST(
-                 (SELECT COALESCE(sum(r.montant),0) FROM reunions r WHERE r.date >= m.date_adhesion AND r.date <= CURRENT_DATE)
+                 (SELECT COALESCE(sum(r.montant),0) FROM reunions r
+                   WHERE r.association_id = m.association_id AND r.date >= m.date_adhesion AND r.date <= CURRENT_DATE)
                - (SELECT COALESCE(sum(c.montant),0) FROM cotisations c WHERE c.membre_id = m.id), 0)),0)::float AS total
           FROM membres m
-         WHERE m.actif`,
+         WHERE m.actif AND m.association_id = ${asso}`,
       prisma.reunion.findFirst({
-        where: { date: { gte: s.versDate(s.aujourdhui()) } },
+        where: { association_id: asso, date: { gte: s.versDate(s.aujourdhui()) } },
         orderBy: { date: 'asc' },
       }),
-      prochaineDate(),
+      prochaineDate(asso),
     ]);
     res.json({
       membres,

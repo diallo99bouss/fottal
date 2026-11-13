@@ -11,7 +11,7 @@ export function RowActions({
 }: {
   label: string;
   onEdit: () => void;
-  onDelete: () => void;
+  onDelete?: () => void; // absent : pas de bouton Supprimer
 }) {
   const stop = (fn: () => void) => (e: React.MouseEvent | React.KeyboardEvent) => {
     e.stopPropagation();
@@ -30,6 +30,7 @@ export function RowActions({
       >
         <Pencil className="h-4 w-4" />
       </Button>
+      {onDelete && (
       <Button
         variant="ghost"
         size="icon-sm"
@@ -40,6 +41,7 @@ export function RowActions({
       >
         <Trash2 className="h-4 w-4" />
       </Button>
+      )}
     </div>
   );
 }

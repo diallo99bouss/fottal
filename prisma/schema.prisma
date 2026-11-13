@@ -1,4 +1,6 @@
-// Schéma Prisma de la caisse de l'association
+// Schéma Prisma de FOTTAL (SaaS : plusieurs associations dans la même base)
+// Chaque donnée appartient à une association : membres, réunions et bolondhas portent
+// association_id ; cotisations, aides et remises y sont rattachées via leur réunion.
 // Les noms de colonnes restent en snake_case : l'API renvoie ces mêmes noms au frontend.
 
 generator client {
@@ -13,58 +15,92 @@ datasource db {
   provider = "postgresql"
 }
 
-/// Comptes de connexion. Contrainte CHECK en base : role IN ('admin', 'agent')
-model Utilisateur {
-  id            Int          @id @default(autoincrement())
-  email         String       @unique
-  nom           String
-  mot_de_passe  String // hash bcrypt
-  role          String
-  cree_le       DateTime     @default(now()) @db.Timestamptz(6)
-  encaissements Cotisation[]
-  aides         Aide[]
+/// Une association cliente de l'application, avec ses réglages et son règlement
+model Association {
+  id                 Int           @id @default(autoincrement())
+  nom                String
+  // Cotisation demandée à chaque réunion et nombre de mois entre deux réunions
+  montant_cotisation Decimal       @default(30) @db.Decimal(10, 2)
+  intervalle_mois    Int           @default(2)
+  // Lois et règles : { introduction, misAJourLe, sections: [{ titre, articles: [{ titre, texte }] }] }
+  reglement          Json?
+  actif              Boolean       @default(true)
+  cree_le            DateTime      @default(now()) @db.Timestamptz(6)
+  utilisateurs       Utilisateur[]
+  membres            Membre[]
+  reunions           Reunion[]
+  bolondhas          Bolondha[]
 
+  @@map("associations")
+}
+
+/// Comptes de connexion. Contraintes CHECK en base :
+///   role IN ('superadmin', 'admin', 'agent')
+///   superadmin <=> pas d'association ; admin (président) et agent (gérant) => une association
+model Utilisateur {
+  id             Int          @id @default(autoincrement())
+  email          String       @unique
+  nom            String
+  mot_de_passe   String // hash bcrypt
+  role           String
+  association_id Int?
+  // Coordonnées de la personne (facultatives)
+  telephone      String?
+  adresse        String?
+  ville          String?
+  cree_le        DateTime     @default(now()) @db.Timestamptz(6)
+  association    Association? @relation(fields: [association_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  encaissements  Cotisation[]
+  aides          Aide[]
+
+  @@index([association_id], map: "idx_utilisateurs_association")
   @@map("utilisateurs")
 }
 
 model Membre {
-  id            Int          @id @default(autoincrement())
-  prenom        String
-  nom           String
-  telephone     String?
-  email         String?
-  ville         String?
-  bolondha_id   Int?
-  date_adhesion DateTime     @default(dbgenerated("CURRENT_DATE")) @db.Date
-  actif         Boolean      @default(true)
-  cree_le       DateTime     @default(now()) @db.Timestamptz(6)
-  modifie_le    DateTime     @default(now()) @updatedAt @db.Timestamptz(6)
-  cotisations   Cotisation[]
-  aides_recues  Aide[]       @relation("AideBeneficiaire")
-  remises       Remise[]     @relation("Depositaire")
+  id             Int          @id @default(autoincrement())
+  association_id Int
+  association    Association  @relation(fields: [association_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  prenom         String
+  nom            String
+  telephone      String?
+  email          String?
+  ville          String?
+  bolondha_id    Int?
+  date_adhesion  DateTime     @default(dbgenerated("CURRENT_DATE")) @db.Date
+  actif          Boolean      @default(true)
+  cree_le        DateTime     @default(now()) @db.Timestamptz(6)
+  modifie_le     DateTime     @default(now()) @updatedAt @db.Timestamptz(6)
+  cotisations    Cotisation[]
+  aides_recues   Aide[]       @relation("AideBeneficiaire")
+  remises        Remise[]     @relation("Depositaire")
   // Une bolondha utilisée par des membres ne peut pas être supprimée (Restrict)
-  bolondha      Bolondha?    @relation(fields: [bolondha_id], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  bolondha       Bolondha?    @relation(fields: [bolondha_id], references: [id], onDelete: Restrict, onUpdate: NoAction)
 
   @@index([bolondha_id], map: "idx_membres_bolondha")
+  @@index([association_id], map: "idx_membres_association")
   @@map("membres")
 }
 
-/// Une réunion tous les 2 mois. Contrainte CHECK en base : montant >= 0
+/// Réunion d'une association (fréquence réglable). Contrainte CHECK en base : montant >= 0
 model Reunion {
-  id          Int          @id @default(autoincrement())
-  date        DateTime     @db.Date
-  lieu        String?
-  notes       String?
-  montant     Decimal      @default(30) @db.Decimal(10, 2)
-  cree_le     DateTime     @default(now()) @db.Timestamptz(6)
-  modifie_le  DateTime     @default(now()) @updatedAt @db.Timestamptz(6)
-  cotisations Cotisation[]
-  aides       Aide[]
+  id             Int          @id @default(autoincrement())
+  association_id Int
+  association    Association  @relation(fields: [association_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  date           DateTime     @db.Date
+  lieu           String?
+  notes          String?
+  montant        Decimal      @default(30) @db.Decimal(10, 2)
+  cree_le        DateTime     @default(now()) @db.Timestamptz(6)
+  modifie_le     DateTime     @default(now()) @updatedAt @db.Timestamptz(6)
+  cotisations    Cotisation[]
+  aides          Aide[]
 
   // Restant (cotisations − aides) confié à une ou plusieurs personnes
   remises Remise[]
 
   @@index([date], map: "idx_reunions_date")
+  @@index([association_id, date], map: "idx_reunions_association_date")
   @@map("reunions")
 }
 
@@ -89,11 +125,15 @@ model Cotisation {
 
 /// Bolondha (groupe d'appartenance d'un membre), gérée par l'admin
 model Bolondha {
-  id      Int      @id @default(autoincrement())
-  nom     String   @unique
-  cree_le DateTime @default(now()) @db.Timestamptz(6)
-  membres Membre[]
+  id             Int         @id @default(autoincrement())
+  association_id Int
+  nom            String
+  cree_le        DateTime    @default(now()) @db.Timestamptz(6)
+  association    Association @relation(fields: [association_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  membres        Membre[]
 
+  // Un nom de bolondha est unique dans une association (deux associations peuvent avoir « Kowly »)
+  @@unique([association_id, nom])
   @@map("bolondhas")
 }
 

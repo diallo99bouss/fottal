@@ -13,7 +13,7 @@ let server, base;
 
 before(async () => {
   // Repart d'une base vide puis applique les migrations Prisma
-  await prisma.$executeRawUnsafe('DROP TABLE IF EXISTS remises, aides, cotisations, reunions, membres, bolondhas, utilisateurs, _prisma_migrations CASCADE');
+  await prisma.$executeRawUnsafe('DROP TABLE IF EXISTS remises, aides, cotisations, reunions, membres, bolondhas, utilisateurs, associations, _prisma_migrations CASCADE');
   const dossier = path.join(__dirname, '..', 'prisma', 'migrations');
   for (const m of fs.readdirSync(dossier).filter((d) => fs.statSync(path.join(dossier, d)).isDirectory()).sort()) {
     const sql = fs.readFileSync(path.join(dossier, m, 'migration.sql'), 'utf8');
@@ -22,10 +22,13 @@ before(async () => {
       await prisma.$executeRawUnsafe(instr);
     }
   }
+  // Association de test (président admin@ et gérant agent@) + super-admin de l'application
   const h = await bcrypt.hash('secret123', 4);
+  const asso = await prisma.association.create({ data: { nom: 'Association de test' } });
   await prisma.utilisateur.createMany({ data: [
-    { email: 'admin@test.fr', nom: 'Admin', mot_de_passe: h, role: 'admin' },
-    { email: 'agent@test.fr', nom: 'Agent', mot_de_passe: h, role: 'agent' },
+    { email: 'admin@test.fr', nom: 'Admin', mot_de_passe: h, role: 'admin', association_id: asso.id },
+    { email: 'agent@test.fr', nom: 'Agent', mot_de_passe: h, role: 'agent', association_id: asso.id },
+    { email: 'super@test.fr', nom: 'Super', mot_de_passe: h, role: 'superadmin' },
   ] });
   server = app.listen(0);
   base = `http://localhost:${server.address().port}/api`;
@@ -296,4 +299,164 @@ test('un versement comble d\'abord le retard de la réunion précédente', async
   assert.strictEqual(fiche.montant_du, 0);
   assert.strictEqual(fiche.reunions_dues, 0);
   assert.ok(fiche.historique.every((h) => h.couvert === h.montant));
+});
+
+test("super-admin : création d'association avec son président, désactivation", async () => {
+  const sup = await login('super@test.fr');
+  const admin = await login('admin@test.fr');
+
+  // Le super-admin n'accède pas aux données d'une association, et un président n'accède pas au super-admin
+  assert.strictEqual((await sup('GET', '/membres')).status, 403);
+  assert.strictEqual((await admin('GET', '/superadmin/associations')).status, 403);
+
+  const creee = await sup('POST', '/superadmin/associations', {
+    nom: 'Association B', montant_cotisation: 20, intervalle_mois: 1,
+    admin: { nom: 'Président B', email: 'President.B@test.fr', motDePasse: 'secret123' },
+  });
+  assert.strictEqual(creee.status, 201);
+  assert.strictEqual(creee.body.montant_cotisation, 20);
+  // Email déjà pris, mot de passe trop court, fréquence invalide
+  assert.strictEqual((await sup('POST', '/superadmin/associations', { nom: 'X', admin: { nom: 'X', email: 'admin@test.fr', motDePasse: 'secret123' } })).status, 409);
+  assert.strictEqual((await sup('POST', '/superadmin/associations', { nom: 'X', admin: { nom: 'X', email: 'x@test.fr', motDePasse: 'court' } })).status, 400);
+  assert.strictEqual((await sup('POST', '/superadmin/associations', { nom: 'X', intervalle_mois: 13, admin: { nom: 'X', email: 'x@test.fr', motDePasse: 'secret123' } })).status, 400);
+
+  const liste = (await sup('GET', '/superadmin/associations')).body;
+  const b = liste.find((a) => a.id === creee.body.id);
+  assert.strictEqual(b.administrateurs, 'Président B');
+  assert.strictEqual(b.comptes, 1);
+
+  // Le président B se connecte (email insensible à la casse) et voit son association
+  const presB = await login('president.b@test.fr');
+  const moi = (await presB('GET', '/auth/me')).body;
+  assert.strictEqual(moi.role, 'admin');
+  assert.strictEqual(moi.association.nom, 'Association B');
+
+  // Désactivée : plus d'accès, ni connexion
+  assert.strictEqual((await sup('PUT', `/superadmin/associations/${b.id}`, { actif: false })).body.actif, false);
+  assert.strictEqual((await presB('GET', '/membres')).status, 403);
+  const r = await fetch(base + '/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'president.b@test.fr', motDePasse: 'secret123' }) });
+  assert.strictEqual(r.status, 403);
+  await sup('PUT', `/superadmin/associations/${b.id}`, { actif: true });
+});
+
+test("étanchéité : une association ne voit ni ne modifie les données d'une autre", async () => {
+  const sup = await login('super@test.fr');
+  const adminA = await login('admin@test.fr');
+  const c = await sup('POST', '/superadmin/associations', {
+    nom: 'Association C', admin: { nom: 'Président C', email: 'president.c@test.fr', motDePasse: 'secret123' },
+  });
+  assert.strictEqual(c.status, 201);
+  const adminC = await login('president.c@test.fr');
+
+  // Données de C
+  const mC = (await adminC('POST', '/membres', { prenom: 'Secret', nom: 'DeC', date_adhesion: '2024-01-01' })).body;
+  const rC = (await adminC('POST', '/reunions', { date: '2024-06-01' })).body;
+  const bC = (await adminC('POST', '/bolondhas', { nom: 'Kowly' })).body; // même nom possible dans une autre association
+  assert.ok(bC.id);
+  await adminC('POST', `/reunions/${rC.id}/cotisations`, { membre_id: mC.id, montant: 30 });
+
+  // A ne voit rien de C
+  assert.ok(!(await adminA('GET', '/membres')).body.some((m) => m.id === mC.id));
+  assert.ok(!(await adminA('GET', '/reunions')).body.some((r) => r.id === rC.id));
+  assert.ok(!(await adminA('GET', '/bolondhas')).body.some((b) => b.id === bC.id));
+  assert.strictEqual((await adminA('GET', '/membres/' + mC.id)).status, 404);
+  assert.strictEqual((await adminA('GET', '/reunions/' + rC.id)).status, 404);
+
+  // A ne peut rien modifier chez C
+  assert.strictEqual((await adminA('PUT', '/membres/' + mC.id, { prenom: 'X', nom: 'Y' })).status, 404);
+  assert.strictEqual((await adminA('DELETE', '/membres/' + mC.id)).status, 404);
+  assert.strictEqual((await adminA('DELETE', '/reunions/' + rC.id)).status, 404);
+  assert.strictEqual((await adminA('PUT', '/bolondhas/' + bC.id, { nom: 'Pirate' })).status, 404);
+  assert.strictEqual((await adminA('DELETE', '/bolondhas/' + bC.id)).status, 404);
+  assert.strictEqual((await adminA('POST', `/reunions/${rC.id}/cotisations`, { membre_id: mC.id })).status, 404);
+  assert.strictEqual((await adminA('POST', `/reunions/${rC.id}/aides`, { type: 'autre', beneficiaire_nom: 'X', montant: 1 })).status, 404);
+  assert.strictEqual((await adminA('POST', `/reunions/${rC.id}/remises`, { membre_id: mC.id })).status, 404);
+
+  // A ne peut pas utiliser un membre ou une bolondha de C dans ses propres données
+  const rA = (await adminA('POST', '/reunions', { date: '2024-06-02' })).body;
+  assert.strictEqual((await adminA('POST', `/reunions/${rA.id}/cotisations`, { membre_id: mC.id })).status, 404);
+  assert.strictEqual((await adminA('POST', '/membres', { prenom: 'A', nom: 'B', bolondha_id: bC.id })).status, 400);
+
+  // Le tableau de bord de C ne compte que ses données
+  const tbC = (await adminC('GET', '/tableau')).body;
+  assert.strictEqual(tbC.membres, 1);
+  assert.strictEqual(tbC.aides_versees, 0);
+  await adminA('DELETE', '/reunions/' + rA.id);
+});
+
+test("réglages, règlement et comptes de l'association", async () => {
+  const admin = await login('admin@test.fr');
+  const agent = await login('agent@test.fr');
+
+  // Réglages : seuls les admins modifient ; le montant par défaut des réunions suit la cotisation
+  assert.strictEqual((await agent('PUT', '/association', { nom: 'X' })).status, 403);
+  const a = await admin('PUT', '/association', { nom: 'Association de test', montant_cotisation: 25, intervalle_mois: 3 });
+  assert.strictEqual(a.body.montant_cotisation, 25);
+  assert.strictEqual((await admin('PUT', '/association', { nom: 'X', intervalle_mois: 0 })).status, 400);
+  const r = (await admin('POST', '/reunions', { date: '2023-01-10' })).body;
+  assert.strictEqual(r.montant, 25);
+  await admin('DELETE', '/reunions/' + r.id);
+  await admin('PUT', '/association', { nom: 'Association de test', montant_cotisation: 30, intervalle_mois: 2 });
+
+  // Règlement
+  const reg = await admin('PUT', '/association/reglement', {
+    introduction: 'Intro',
+    sections: [{ titre: 'Chapitre 1', articles: [{ titre: 'Cotisation', texte: '30 € par réunion' }] }],
+  });
+  assert.strictEqual(reg.status, 200);
+  assert.strictEqual((await agent('GET', '/association')).body.reglement.sections[0].articles[0].texte, '30 € par réunion');
+  assert.strictEqual((await admin('PUT', '/association/reglement', { sections: [{ titre: '', articles: [] }] })).status, 400);
+  assert.strictEqual((await agent('PUT', '/association/reglement', { sections: [] })).status, 403);
+
+  // Comptes : le président ajoute un gérant ; l'agent n'a pas accès
+  assert.strictEqual((await agent('GET', '/utilisateurs')).status, 403);
+  const g = await admin('POST', '/utilisateurs', { nom: 'Gérant 2', email: 'gerant2@test.fr', motDePasse: 'secret123', role: 'agent' });
+  assert.strictEqual(g.status, 201);
+  assert.strictEqual(g.body.mot_de_passe, undefined);
+  assert.strictEqual((await admin('POST', '/utilisateurs', { nom: 'X', email: 'gerant2@test.fr', motDePasse: 'secret123' })).status, 409);
+  const gerant2 = await login('gerant2@test.fr');
+  assert.strictEqual((await gerant2('GET', '/membres')).status, 200);
+
+  // On ne peut pas retirer le dernier administrateur, ni se supprimer soi-même
+  const moi = (await admin('GET', '/auth/me')).body;
+  assert.strictEqual((await admin('PUT', '/utilisateurs/' + moi.id, { nom: 'Admin', email: 'admin@test.fr', role: 'agent' })).status, 409);
+  assert.strictEqual((await admin('DELETE', '/utilisateurs/' + moi.id)).status, 409);
+  assert.strictEqual((await admin('DELETE', '/utilisateurs/' + g.body.id)).status, 200);
+});
+
+test('coordonnées des comptes : téléphone, adresse, ville', async () => {
+  const sup = await login('super@test.fr');
+  const admin = await login('admin@test.fr');
+
+  // Président créé avec l'association, avec ses coordonnées
+  const d = await sup('POST', '/superadmin/associations', {
+    nom: 'Association D',
+    admin: { nom: 'Président D', email: 'president.d@test.fr', motDePasse: 'secret123', telephone: '0601020304', adresse: '1 rue de la Paix', ville: 'Lyon' },
+  });
+  assert.strictEqual(d.status, 201);
+
+  // La liste des associations montre le président, son téléphone, sa ville et les comptes
+  const ligne = (await sup('GET', '/superadmin/associations')).body.find((a) => a.id === d.body.id);
+  assert.strictEqual(ligne.president, 'Président D');
+  assert.strictEqual(ligne.president_telephone, '0601020304');
+  assert.strictEqual(ligne.president_ville, 'Lyon');
+  assert.strictEqual(ligne.comptes, 1);
+  assert.strictEqual(ligne.agents, 0);
+
+  // Compte ajouté par le super-admin, puis modifié sans perdre les coordonnées non envoyées
+  const g = await sup('POST', `/superadmin/associations/${d.body.id}/comptes`, { nom: 'Gérant D', email: 'gerant.d@test.fr', motDePasse: 'secret123', role: 'agent', ville: 'Lyon' });
+  assert.strictEqual(g.body.ville, 'Lyon');
+  const maj = await sup('PUT', `/superadmin/comptes/${g.body.id}`, { telephone: '0700000000' });
+  assert.strictEqual(maj.body.telephone, '0700000000');
+  assert.strictEqual(maj.body.ville, 'Lyon');
+  assert.strictEqual((await sup('GET', '/superadmin/associations')).body.find((a) => a.id === d.body.id).agents, 1);
+
+  // Le président d'une association saisit les coordonnées de ses gérants
+  const c = await admin('POST', '/utilisateurs', { nom: 'Gérant 3', email: 'gerant3@test.fr', motDePasse: 'secret123', telephone: '0611111111', adresse: '2 avenue Foch', ville: 'Paris' });
+  assert.strictEqual(c.status, 201);
+  const liste = (await admin('GET', '/utilisateurs')).body;
+  const g3 = liste.find((u) => u.id === c.body.id);
+  assert.strictEqual(g3.adresse, '2 avenue Foch');
+  assert.strictEqual(g3.ville, 'Paris');
+  await admin('DELETE', '/utilisateurs/' + c.body.id);
 });

@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { Textarea } from "@/components/ui/textarea";
+import { useAuth } from "@/components/providers/auth-provider";
 import { api, errMsg } from "@/lib/api";
 import { aujourdhui } from "@/lib/format";
 import type { Reunion } from "@/types";
@@ -25,9 +26,10 @@ export function ReunionForm({ open, onClose, onSaved, reunion }: Props) {
 
 function ReunionFormInner({ onClose, onSaved, reunion }: Omit<Props, "open">) {
   const isNew = !reunion;
+  const { association } = useAuth();
   const [f, setF] = useState({
     date: reunion?.date ?? aujourdhui(),
-    montant: String(reunion?.montant ?? 30),
+    montant: String(reunion?.montant ?? association?.montant_cotisation ?? 30),
     lieu: reunion?.lieu ?? "",
     notes: reunion?.notes ?? "",
   });

@@ -5,19 +5,24 @@ import { Header } from "@/components/layout/header";
 import { Sidebar } from "@/components/layout/sidebar";
 import { useAuth } from "@/components/providers/auth-provider";
 import { Loader2 } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
 
-// Toutes les pages de la caisse exigent d'être connecté
+// Toutes les pages exigent d'être connecté. Chacun reste dans son espace :
+//   super-admin -> /super (administration) ; comptes d'association -> leur caisse
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth();
+  const { user, isSuperAdmin } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
+  const espaceSuper = pathname === "/super" || pathname.startsWith("/super/");
+  const mauvaisEspace = !!user && isSuperAdmin !== espaceSuper;
 
   useEffect(() => {
     if (user === null) router.replace("/connexion");
-  }, [user, router]);
+    else if (mauvaisEspace) router.replace(isSuperAdmin ? "/super" : "/");
+  }, [user, mauvaisEspace, isSuperAdmin, router]);
 
-  if (!user) {
+  if (!user || mauvaisEspace) {
     return (
       <div role="status" className="flex min-h-screen items-center justify-center text-muted-foreground">
         <Loader2 className="h-6 w-6 animate-spin" aria-hidden="true" />

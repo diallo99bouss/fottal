@@ -1,6 +1,7 @@
 "use client";
 
-import { navigation } from "@/config/navigation";
+import { useAuth } from "@/components/providers/auth-provider";
+import { navigationPour } from "@/config/navigation";
 import { cn } from "@/lib/utils";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { setSidebarOpen } from "@/store/slices/sidebar-slice";
@@ -120,6 +121,9 @@ function NavLink({ item, collapsed, onNavigate }: NavLinkProps) {
 export function Sidebar() {
   const { isOpen, isCollapsed } = useAppSelector((state) => state.sidebar);
   const dispatch = useAppDispatch();
+  // Menu selon le rôle (association ou super-admin)
+  const { user } = useAuth();
+  const navigation = navigationPour(user?.role);
   // Only has a visible effect below lg, where the sidebar is an overlay drawer
   const closeMobile = () => dispatch(setSidebarOpen(false));
 

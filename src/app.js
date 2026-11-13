@@ -2,17 +2,25 @@ const fs = require('fs');
 const path = require('path');
 const express = require('express');
 const cookieParser = require('cookie-parser');
-const { authentifie } = require('./middleware/auth');
+const { authentifie, association, role } = require('./middleware/auth');
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '200kb' }));
 app.use(cookieParser());
 
 app.use('/api/auth', require('./routes/auth'));
-app.use('/api/membres', authentifie, require('./routes/membres'));
-app.use('/api/reunions', authentifie, require('./routes/reunions'));
-app.use('/api/tableau', authentifie, require('./routes/tableau'));
-app.use('/api/bolondhas', authentifie, require('./routes/bolondhas'));
+
+// Données d'une association : réservées à ses comptes (admin et agent), filtrées sur req.asso
+const asso = [authentifie, association];
+app.use('/api/membres', asso, require('./routes/membres'));
+app.use('/api/reunions', asso, require('./routes/reunions'));
+app.use('/api/tableau', asso, require('./routes/tableau'));
+app.use('/api/bolondhas', asso, require('./routes/bolondhas'));
+app.use('/api/association', asso, require('./routes/association'));
+app.use('/api/utilisateurs', asso, role('admin'), require('./routes/utilisateurs'));
+
+// Administration de l'application (toutes les associations)
+app.use('/api/superadmin', authentifie, role('superadmin'), require('./routes/superadmin'));
 
 app.use('/api', (req, res) => res.status(404).json({ erreur: 'Route inconnue' }));
 

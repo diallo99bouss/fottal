@@ -1,27 +1,28 @@
-﻿# Caisse de l'Association
+﻿# FOTTAL — caisse des associations
 
-Application web pour gérer les membres, les réunions et les cotisations d'une association.
+Application web (SaaS) pour gérer les membres, les réunions et les cotisations de **plusieurs associations**.
+Chaque association ne voit que ses propres données.
 
-- **Cotisation** : 15 € par mois
-- **Réunion** : tous les 2 mois, donc **30 € par réunion**
+- **Cotisation** : réglable par association (par défaut 30 € par réunion)
+- **Réunions** : fréquence réglable (par défaut tous les 2 mois)
 
 Technologies : **Node.js (Express)**, **PostgreSQL** via l'ORM **Prisma 7**, interface **Next.js + React + Tailwind CSS** (dossier `web/`, basée sur le template [DropX Admin](https://datadropx.net) de DataDropX).
 
 ## Rôles
 
-| Action | Administrateur | Agent |
-|---|:---:|:---:|
-| Voir le tableau de bord, les membres, les réunions | ✅ | ✅ |
-| Ajouter / modifier / supprimer un membre | ✅ | ❌ |
-| Ajouter / modifier / supprimer une réunion | ✅ | ❌ |
-| Encaisser ou annuler une cotisation | ✅ | ✅ |
+| Rôle | Portée | Ce qu'il fait |
+|---|---|---|
+| **Super-admin** | toute l'application | crée les associations et le compte de leur président, réinitialise un mot de passe, active / désactive une association |
+| **Administrateur** (président) | son association | membres, réunions, bolondhas, règlement, réglages (cotisation, fréquence), comptes des agents |
+| **Agent** (gérant) | son association | consulte tout, encaisse les cotisations, enregistre les aides et la remise du restant |
 
 ## Fonctionnalités
 
-- Tableau de bord : nombre de membres, total en caisse, montant restant dû, prochaine réunion, membres en retard.
-- Membres : recherche, fiche avec l'historique des réunions et le montant dû.
-- Réunions : la date proposée tombe 2 mois après la précédente ; pour chaque réunion, liste des membres avec un bouton « Encaisser ».
-- Calcul automatique des retards : un membre doit 30 € pour chaque réunion passée depuis son adhésion qu'il n'a pas payée.
+- Tableau de bord : membres, total en caisse, restant dû, prochaine réunion, membres en retard.
+- Membres : recherche, bolondha, ville, situation (à jour / pas à jour), fiche avec l'historique.
+- Réunions : date conseillée selon la fréquence de l'association ; encaissement à montant libre (un versement règle d'abord les retards les plus anciens).
+- Bilan de réunion : aides (maladie, décès…), restant confié à une ou plusieurs personnes.
+- Lois et règles : rédigées par le président de chaque association.
 
 ## Installation
 
@@ -44,9 +45,8 @@ cp .env.example .env
 # 4. Créer les tables (applique les migrations Prisma)
 npm run db:init
 
-# 5. Créer les comptes de connexion
-npm run user:create -- admin@monasso.fr MotDePasseSolide admin "Prénom Nom"
-npm run user:create -- agent@monasso.fr AutreMotDePasse agent "Prénom Nom"
+# 5. Créer le compte super-admin (puis les associations se créent depuis l'application)
+npm run user:create -- vous@exemple.fr MotDePasseSolide superadmin "Prénom Nom"
 
 # 6. Construire l'interface puis démarrer
 npm run web:build

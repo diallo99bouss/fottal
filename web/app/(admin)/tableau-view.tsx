@@ -9,8 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatCard } from "@/components/ui/stat-card";
-import { siteConfig } from "@/config/site";
-import { eur, fmtDate, nomComplet } from "@/lib/format";
+import { eur, fmtDate, nomComplet, regleCotisation } from "@/lib/format";
 import { useApi } from "@/lib/use-api";
 import type { Membre, ReunionDetail, Tableau } from "@/types";
 import { AlertTriangle, ArrowRight, CalendarPlus, CheckCircle2, PiggyBank, Users } from "lucide-react";
@@ -18,7 +17,7 @@ import Link from "next/link";
 import { useState } from "react";
 
 export function TableauView() {
-  const { isAdmin } = useAuth();
+  const { isAdmin, association } = useAuth();
   const tableau = useApi<Tableau>("/tableau");
   const membres = useApi<Membre[]>("/membres");
   const prochaineId = tableau.data?.prochaine_reunion?.id;
@@ -41,7 +40,7 @@ export function TableauView() {
     <div className="space-y-6">
       <PageHeader
         title="Tableau de bord"
-        description={siteConfig.regle}
+        description={regleCotisation(association)}
         actions={
           isAdmin && (
             <Button onClick={() => setFormOpen(true)}>

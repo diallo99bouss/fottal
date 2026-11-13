@@ -31,13 +31,13 @@ async function bilan(reunionId, { sansAide } = {}) {
 
 async function reunionOu404(req, res) {
   const id = v.id(req.params.id);
-  const r = await prisma.reunion.findUnique({ where: { id }, select: { id: true } });
+  const r = await prisma.reunion.findFirst({ where: { id, association_id: req.asso }, select: { id: true } });
   if (!r) res.status(404).json({ erreur: 'Réunion introuvable' });
   return r;
 }
 
 // Lit et valide une aide ; le nom du bénéficiaire est repris du membre s'il n'est pas saisi
-async function lireAide(body) {
+async function lireAide(body, asso) {
   const type = TYPES.includes(body.type) ? body.type : null;
   if (!type) throw new v.ErreurValidation("Type d'aide invalide (maladie, décès ou autre)");
   const montant = v.montant(body.montant, 'montant', null);
@@ -45,7 +45,7 @@ async function lireAide(body) {
   const membre_id = v.idOptionnel(body.membre_id);
   let beneficiaire_nom = v.texte(body.beneficiaire_nom, 'bénéficiaire');
   if (membre_id) {
-    const m = await prisma.membre.findUnique({ where: { id: membre_id }, select: { prenom: true, nom: true } });
+    const m = await prisma.membre.findFirst({ where: { id: membre_id, association_id: asso }, select: { prenom: true, nom: true } });
     if (!m) throw new v.ErreurValidation('Membre bénéficiaire introuvable');
     beneficiaire_nom = beneficiaire_nom || `${m.prenom} ${m.nom}`;
   }
@@ -67,7 +67,7 @@ router.post('/aides', async (req, res, next) => {
   try {
     const r = await reunionOu404(req, res);
     if (!r) return;
-    const data = await lireAide(req.body || {});
+    const data = await lireAide(req.body || {}, req.asso);
     await verifierFonds(r.id, await bilan(r.id), data.montant);
     const a = await prisma.aide.create({ data: { ...data, reunion_id: r.id, enregistre_par: req.utilisateur.id } });
     res.status(201).json(s.aide(a));
@@ -81,7 +81,7 @@ router.put('/aides/:aideId', async (req, res, next) => {
     const aideId = v.id(req.params.aideId);
     const existe = await prisma.aide.findFirst({ where: { id: aideId, reunion_id: r.id } });
     if (!existe) return res.status(404).json({ erreur: 'Aide introuvable' });
-    const data = await lireAide(req.body || {});
+    const data = await lireAide(req.body || {}, req.asso);
     await verifierFonds(r.id, await bilan(r.id, { sansAide: aideId }), data.montant);
     const a = await prisma.aide.update({ where: { id: aideId }, data });
     res.json(s.aide(a));
@@ -112,9 +112,9 @@ async function totalRemis(reunionId, sauf) {
 }
 
 // Lit le membre dépositaire et le montant (par défaut : tout ce qui reste à confier)
-async function lireRemise(body, aConfier) {
+async function lireRemise(body, aConfier, asso) {
   const membre_id = v.id(body.membre_id);
-  const m = await prisma.membre.findUnique({ where: { id: membre_id }, select: { prenom: true, nom: true } });
+  const m = await prisma.membre.findFirst({ where: { id: membre_id, association_id: asso }, select: { prenom: true, nom: true } });
   if (!m) throw new v.ErreurValidation('Membre introuvable');
   const montant = v.montant(body.montant, 'montant', aConfier);
   if (!(montant > 0)) throw new v.ErreurValidation('Le montant confié doit être supérieur à 0');
@@ -131,7 +131,7 @@ router.post('/remises', async (req, res, next) => {
     const { restant } = await bilan(r.id);
     const aConfier = arrondi(restant - (await totalRemis(r.id)));
     if (aConfier <= 0) return res.status(409).json({ erreur: 'Tout le restant de cette réunion est déjà confié' });
-    const data = await lireRemise(req.body || {}, aConfier);
+    const data = await lireRemise(req.body || {}, aConfier, req.asso);
     const remise = await prisma.remise.create({ data: { ...data, reunion_id: r.id } });
     res.status(201).json(s.remise(remise));
   } catch (e) {
@@ -151,7 +151,7 @@ router.put('/remises/:remiseId', async (req, res, next) => {
     if (!existe) return res.status(404).json({ erreur: 'Remise introuvable' });
     const { restant } = await bilan(r.id);
     const aConfier = arrondi(restant - (await totalRemis(r.id, remiseId)));
-    const data = await lireRemise({ membre_id: existe.membre_id, ...(req.body || {}) }, aConfier);
+    const data = await lireRemise({ membre_id: existe.membre_id, ...(req.body || {}) }, aConfier, req.asso);
     const remise = await prisma.remise.update({ where: { id: remiseId }, data: { ...data, remis_le: new Date() } });
     res.json(s.remise(remise));
   } catch (e) {

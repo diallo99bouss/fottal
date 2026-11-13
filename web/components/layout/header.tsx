@@ -7,6 +7,7 @@ import { Maximize2, Menu, Moon, PanelLeftClose, PanelLeftOpen, Search, Sun } fro
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useTheme } from "next-themes";
+import { useAuth } from "@/components/providers/auth-provider";
 import { UserMenu } from "./user-menu";
 
 export function Header() {
@@ -14,6 +15,7 @@ export function Header() {
   const router = useRouter();
   const { isCollapsed } = useAppSelector((state) => state.sidebar);
   const { resolvedTheme, setTheme } = useTheme();
+  const { isSuperAdmin, association } = useAuth();
   const [q, setQ] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -55,7 +57,10 @@ export function Header() {
           )}
         </button>
 
-        {/* Recherche de membres */}
+        {/* Recherche de membres (comptes d'association) ; nom de l'espace pour le super-admin */}
+        {isSuperAdmin ? (
+          <p className="flex-1 truncate text-sm font-semibold">Administration de FOTTAL</p>
+        ) : (
         <form
           role="search"
           className="flex-1"
@@ -82,6 +87,13 @@ export function Header() {
             </kbd>
           </label>
         </form>
+        )}
+
+        {association && (
+          <span className="hidden max-w-[16rem] truncate rounded-lg border border-primary/20 bg-primary/5 px-3 py-1.5 text-xs font-semibold text-primary lg:block">
+            {association.nom}
+          </span>
+        )}
 
         <div className="flex items-center gap-2">
           <button
